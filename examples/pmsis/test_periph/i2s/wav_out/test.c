@@ -35,7 +35,7 @@ static int test_entry()
     pi_bsp_init();
 
     pi_freq_set(PI_FREQ_DOMAIN_FC, 250000000);
-    printf("Freq = %d\n", pi_freq_get(PI_FREQ_DOMAIN_FC));
+    printf("Freq = %ld\n", pi_freq_get(PI_FREQ_DOMAIN_FC));
 
     // Get default I2S interface config
     struct pi_i2s_conf i2s_conf;
