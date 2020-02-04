@@ -56,8 +56,8 @@ void dump_wav(char *filename, int width, int sampling_rate, int nb_channels, voi
     header_buffer[idx++] = 't';
     header_buffer[idx++] = ' ';
 
-    // 4 bytes length of format data above
-    header_buffer[idx++] = width;
+    // 4 bytes length of format data below, until data part
+    header_buffer[idx++] = 0x10;
     header_buffer[idx++] = 0x00;
     header_buffer[idx++] = 0x00;
     header_buffer[idx++] = 0x00;
@@ -83,7 +83,7 @@ void dump_wav(char *filename, int width, int sampling_rate, int nb_channels, voi
     // (16000*16*1)/8=32000 or 0x6F00
     // (22050*16*1)/8=0xac44
     // (22050*16*2)/8=0x15888
-    int rate = (sampling_rate * width * 1) / 8;
+    int rate = (sampling_rate * width * nb_channels) / 8;
     header_buffer[idx++] = (rate >> 0) & 0xff;
     header_buffer[idx++] = (rate >> 8) & 0xff;
     header_buffer[idx++] = (rate >> 16) & 0xff;
@@ -92,11 +92,11 @@ void dump_wav(char *filename, int width, int sampling_rate, int nb_channels, voi
     // 2 bytes (BitsPerSample * Channels) / 8:
     // 16*1/8=2 - 16b mono
     // 16*2/8=4 - 16b stereo
-    rate = (width * 1) / 8;
+    rate = (width * nb_channels) / 8;
     header_buffer[idx++] = (rate >> 0) & 0xff;
     header_buffer[idx++] = (rate >> 8) & 0xff;
 
-    // 2 bytes bit per sample: 16
+    // 2 bytes bit per sample:
     header_buffer[idx++] = width;
     header_buffer[idx++] = 0x00;
 

@@ -96,7 +96,8 @@ static int test_entry()
       printf("  Sample %d: %d\n", i, chunk[i*2+1]);
     }
 
-    dump_wav("out_file.wav", 16, i2s_conf.frame_clk_freq, i2s_conf.channels, (void *)chunk, BUFF_SIZE);
+    dump_wav("out_file.wav", i2s_conf.word_size, i2s_conf.frame_clk_freq,
+             i2s_conf.channels, (void *)chunk, BUFF_SIZE);
     return 0;
 }
 
