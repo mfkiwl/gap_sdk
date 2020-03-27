@@ -16,8 +16,16 @@ export RULES_DIR=$GAP_SDK_HOME/tools/rules
 export NNTOOL_DIR=$GAP_SDK_HOME/tools/nntool
 export PATH="$NNTOOL_DIR":$PATH
 
-# Gapy
-export PATH=$GAP_SDK_HOME/tools/gapy:$PATH
+# PulpOS 2
+export PULPOS_HOME=$GAP_SDK_HOME/rtos/pulp/pulpos-2
+export PULPOS_MODULES="$GAP_SDK_HOME/rtos/pulp/pulpos-2_gap8 $GAP_SDK_HOME/rtos/pulp/pulpos-2_gap9 $GAP_SDK_HOME/rtos/pmsis/pmsis_bsp"
+export PULPOS_GAP8_HOME=$GAP_SDK_HOME/rtos/pulp/pulpos-2_gap8
+export PULPOS_GAP9_HOME=$GAP_SDK_HOME/rtos/pulp/pulpos-2_gap9
+export GAP_PULPOS_ARCHI=$GAP_SDK_HOME/rtos/pulp/gap_archi
+export PULPOS_ARCHI=$GAP_SDK_HOME/rtos/pulp/archi_pulp
+export PULPOS_HAL=$GAP_SDK_HOME/rtos/pulp/hal_pulp
+export PMSIS_API=$GAP_SDK_HOME/rtos/pmsis/pmsis_api
+
 
 # For pulp os
 export PULP_LIB_DIR=$TARGET_INSTALL_DIR/lib
@@ -55,6 +63,12 @@ export GAP_OPENOCD_TOOLS=$INSTALL_DIR/share/openocd
 # Zephyr
 export CROSS_COMPILE="$GAP_RISCV_GCC_TOOLCHAIN/bin/riscv32-unknown-elf-"
 export ZEPHYR_GCC_VARIANT=cross-compile
+
+# Gapy
+export PATH=$GAP_SDK_HOME/tools/gapy:$PATH
+export PYTHONPATH=$GAP_SDK_HOME/tools/gap-configs/python:$PYTHONPATH
+export PYTHONPATH=$GAP_SDK_HOME/tools/gapy:$PYTHONPATH
+export PULP_CONFIGS_PATH=$GAP_SDK_HOME/tools/gap-configs/configs:$PULP_CONFIGS_PATH
 
 if [ "$TARGET_CHIP" = "GAP8" ]
 then

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 GreenWaves Technologies
+ * Copyright (C) 2020 GreenWaves Technologies
  * All rights reserved.
  *
  * This software may be modified and distributed under the terms
@@ -160,21 +160,17 @@ static void RunCifar10(void *arg)
     Conv5x5MaxPool2x2_SW_0(ImageIn,
                            Filter_Layer[0],
                            Bias_Layer[0],
-                           Out_Layer[0],
-                           14,14);
+                           Out_Layer[0]);
 
     Conv5x5MaxPool2x2_SW_1(Out_Layer[0],
                            Filter_Layer[1],
                            Bias_Layer[1],
-                           Out_Layer[1],
-                           14,14);
+                           Out_Layer[1]);
 
     LinearLayerReLU_1(Out_Layer[1],
                       Filter_Layer[2],
                       Bias_Layer[2],
-                      Out_Layer[2],
-                      16,
-                      10);
+                      Out_Layer[2]);
 
     DEBUG_PRINTF("Cluster: End run Cifar10\n");
 }

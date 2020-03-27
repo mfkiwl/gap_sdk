@@ -38,6 +38,8 @@ RM = rm -rf
 MKDIR = mkdir -p
 MAKE = make
 
+TIMEOUT ?= 300
+
 PULP_BRIDGE_PATH = $(GAP_SDK_HOME)/tools/pulp_tools/pulp-debug-bridge
 
 ifeq ($(TARGET_CHIP_FAMILY), GAP8)
@@ -81,7 +83,7 @@ install_others: | $(INSTALL_BIN_DIR)
 	$(CP) $(GAP_SDK_HOME)/tools/ld $(INSTALL_DIR)
 	$(CP) $(GAP_SDK_HOME)/tools/rules $(INSTALL_DIR)
 
-install_pulp_tools: install_others
+install_pulp_tools: install_others plptest.all
 	$(MAKE) -C $(GAP_SDK_HOME)/tools/pulp_tools all
 
 tools: install_others install_pulp_tools
@@ -116,6 +118,9 @@ openocd:
 	cd tools/gap8-openocd-tools && cp -r tcl/* $(INSTALL_DIR)/share/openocd/scripts/tcl
 	cd tools/gap8-openocd-tools && mkdir -p $(INSTALL_DIR)/share/openocd/gap_bins && cp -r gap_bins/* $(INSTALL_DIR)/share/openocd/gap_bins
 
+test:
+	plptest --max-timeout=$(TIMEOUT)
+
 #
 # Littlefs
 #
@@ -134,7 +139,35 @@ $(LFS_MAKEFILE): $(LFS_DIR)/CMakeLists.txt | $(LFS_BUILD_DIR)
 $(LFS_BUILD_DIR):
 	$(MKDIR) -p $@
 
+plptest.checkout:
+	git submodule update --init tools/plptest
+
+plptest.build:
+	cd tools/plptest && make build
+
+plptest.all: plptest.checkout plptest.build
+
+
+gap-configs.checkout:
+	git submodule update --init tools/gap-configs
+
+gap-configs.all: gap-configs.checkout
+
+
+gapy.checkout: gap-configs.checkout
+	git submodule update --init tools/gapy
+
+gapy.all: gapy.checkout gap-configs.all
+
+
+tests.checkout:
+	git submodule update --init tests/pmsis_tests tests/bsp_tests
+
+
+pulpos.checkout:
+	git submodule update --init rtos/pulp/pulpos-2 rtos/pulp/pulpos-2_gap8 rtos/pulp/pulpos-2_gap9 rtos/pulp/gap_archi rtos/pmsis/pmsis_api rtos/pmsis/pmsis_bsp
+
+pulpos.all: pulpos.checkout
 
 
 .PHONY: all install clean docs install_others install_pulp_tools tools pulp-os gvsoc flasher
-
