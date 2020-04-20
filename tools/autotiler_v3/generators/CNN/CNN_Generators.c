@@ -3544,6 +3544,36 @@ int CNN_MatAdd(
 	int Height,
 
     KernelOper_T AddMatOper
+){
+
+
+	return CNN_MatAddRelu(name,Ctrl,
+		In1_DataSize,In2_DataSize,Out_DataSize,
+		In1_InL3,In2_InL3,Out_InL3, 
+		InFeat, OutFeat, Width, Height,
+		AddMatOper,KOP_NONE);
+}
+
+
+int CNN_MatAddRelu(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+	int In1_DataSize,
+	int In2_DataSize,
+	int Out_DataSize,
+
+	int In1_InL3,
+	int In2_InL3,
+	int Out_InL3,
+
+	int InFeat,
+	int OutFeat,
+	int Width,
+	int Height,
+
+    KernelOper_T AddMatOper,
     KernelOper_T ReLUOper
 )
 

@@ -615,25 +615,47 @@ extern int CNN_SoftMax(
 */
 
 extern int CNN_MatAdd(
-        char *Name,
+	char *Name,
 
 	CNN_GenControl_T *Ctrl,
 
-        int In1_DataSize,
-        int In2_DataSize,
-        int Out_DataSize,
+	int In1_DataSize,
+	int In2_DataSize,
+	int Out_DataSize,
 
-        int In1_InL3,
-        int In2_InL3,
-        int Out_InL3,
+	int In1_InL3,
+	int In2_InL3,
+	int Out_InL3,
 
-        int InFeat,
-        int OutFeat,
-        int Width,
-        int Height,
+	int InFeat,
+	int OutFeat,
+	int Width,
+	int Height,
 
-        KernelOper_T AddMatOper
-	);
+    KernelOper_T AddMatOper );
+
+
+extern int CNN_MatAddRelu(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+	int In1_DataSize,
+	int In2_DataSize,
+	int Out_DataSize,
+
+	int In1_InL3,
+	int In2_InL3,
+	int Out_InL3,
+
+	int InFeat,
+	int OutFeat,
+	int Width,
+	int Height,
+
+    KernelOper_T AddMatOper,
+    KernelOper_T ReLUOper
+);
 
 /** \brief CNN_MatAddDynAdjust
 
