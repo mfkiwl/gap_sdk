@@ -98,9 +98,7 @@ void __pi_task_wait_on(pi_task_t *task)
 
 void __pi_task_push(pi_task_t *task)
 {
-    uint32_t irq = disable_irq();
-    pmsis_event_push(pmsis_event_get_default_scheduler(), task);
-    restore_irq(irq);
+    pi_task_push_delayed_us(task, 0);
 }
 
 /*******************************************************************************
@@ -171,7 +169,8 @@ void pi_task_wait_on_no_mutex(pi_task_t *task)
 
 void pi_task_push_delayed_us(pi_task_t *task, uint32_t delay)
 {
+    pi_time_wait_us(delay);
     uint32_t irq = disable_irq();
-    pi_task_delayed_fifo_enqueue(task, delay);
+    pmsis_event_push(pmsis_event_get_default_scheduler(), task);
     restore_irq(irq);
 }

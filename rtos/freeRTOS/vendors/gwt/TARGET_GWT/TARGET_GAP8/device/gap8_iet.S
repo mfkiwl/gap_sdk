@@ -405,7 +405,7 @@ _no_switch_pendsv:
         /* ISR Stack. */
         la sp, __stack_irq_start__
         jal ra, xTaskIncrementTick
-        jal ra, pi_task_delayed_increment_push
+        //jal ra, pi_task_delayed_increment_push
 #ifdef PREEMPTION
         //jal ra, uTaskCheckQuantum
         beq a0, zero, _no_switch
