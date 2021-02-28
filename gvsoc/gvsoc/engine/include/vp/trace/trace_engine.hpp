@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -33,6 +33,9 @@ namespace vp {
   #define TRACE_EVENT_BUFFER_SIZE (1<<16)
   #define TRACE_EVENT_NB_BUFFER   4
 
+  #define TRACE_FORMAT_LONG  0
+  #define TRACE_FORMAT_SHORT 1
+
   class trace_engine : public component
   {
   public:
@@ -44,6 +47,9 @@ namespace vp {
 
     virtual int get_max_path_len() = 0;
     virtual int get_trace_level() = 0;
+
+    int get_format() { return this->trace_format; }
+    
 
     void dump_event(vp::trace *trace, int64_t timestamp, uint8_t *event, int width);
 
@@ -68,6 +74,7 @@ namespace vp {
   protected:
     std::map<std::string, trace *> traces_map;
     std::vector<trace *> traces_array;
+    int trace_format;
 
   private:
     void enqueue_pending(vp::trace *trace, int64_t timestamp, uint8_t *event);
@@ -90,6 +97,7 @@ namespace vp {
 
     Event_trace *first_trace_to_dump;
     bool global_enable = true;
+
   };
 
 };

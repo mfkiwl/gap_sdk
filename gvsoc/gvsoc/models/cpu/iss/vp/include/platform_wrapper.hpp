@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -24,6 +24,7 @@
 
 #include "types.hpp"
 #include "iss_wrapper.hpp"
+#include "insn_cache.hpp"
 #include <string.h>
 
 static inline void iss_handle_ecall(iss_t *iss, iss_insn_t *insn)
@@ -49,6 +50,11 @@ static inline void iss_pccr_incr(iss_t *iss, unsigned int event, int incr)
   {
     iss->pcer_trace_event[event].event_pulse(incr*iss->get_period(), (uint8_t *)&one, (uint8_t *)&zero);
   }
+}
+
+static inline int iss_trace_format(iss_t *iss)
+{
+  return iss->traces.get_trace_manager()->get_format();
 }
 
 static inline int iss_pccr_trace_active(iss_t *iss, unsigned int event)
@@ -311,5 +317,17 @@ static inline void iss_lsu_store(iss_t *iss, iss_insn_t *insn, iss_addr_t addr, 
     iss_exec_insn_stall(iss);
   }
 }
+
+static inline void iss_fence_i(iss_t *iss)
+{
+    if (iss->flush_cache_req_itf.is_bound())
+    {
+        iss_exec_insn_stall(iss);
+
+        iss->flush_cache_req_itf.sync(true);
+        iss_cache_flush(iss);
+    }
+}
+
 
 #endif

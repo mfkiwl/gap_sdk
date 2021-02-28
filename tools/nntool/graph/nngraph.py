@@ -26,12 +26,14 @@ from graph.manipulations import (add_dimensions, adjust_order,
 from graph.types import (ConstantInputParameters, ConvFusionParameters,
                          InputBaseParameters, InputParameters,
                          MultiplicativeBiasParameters, OutputParameters,
-                         RecurrentOutputParameters, SSDDetectorParameters)
+                         RecurrentOutputParameters, ResizerParameters,
+                         SSDDetectorParameters, TransposeParameters)
+from graph.types.expression_fusion import ExpressionFusionParameters
+from interpreter.commands.imageformat import insert_formatter
 from quantization.quantization_set import QuantizationSet
 from utils.graph import Graph, Node
 from utils.json_serializable import JsonSerializable
 from utils.node_id import NodeId
-from interpreter.commands.imageformat import insert_formatter
 
 LOG = logging.getLogger("nntool." + __name__)
 
@@ -49,12 +51,16 @@ class NNGraphChanges(JsonSerializable):
         if init is not None:
             self._changes = init['changes']
             self._image_format = init.get('image_format') or {}
+            self._input_resizer = init.get('input_resizer') or {}
             return
         self._changes = []
         self._image_format = {}
+        self._input_resizer = {}
 
     def _encapsulate(self):
-        return {'changes': self._changes, 'image_format': self._image_format}
+        return {'changes': self._changes,
+                'image_format': self._image_format,
+                'input_resizer': self._input_resizer}
 
     @classmethod
     def _dencapsulate(cls, val):
@@ -66,6 +72,13 @@ class NNGraphChanges(JsonSerializable):
                 del self._image_format[input_node_name]
             return
         self._image_format[input_node_name] = {"formatter": formatter, "normalizer": normalizer}
+
+    def input_resizer(self, input_node_name, resize_op, new_shape):
+        if resize_op is None:
+            if input_node_name in self._input_resizer:
+                del self._input_resizer[input_node_name]
+            return
+        self._input_resizer[input_node_name] = {"resize_op": resize_op, "new_shape": new_shape}
 
     def modify(self, node, attr, val, fnode=None):
         nid = NodeId(node, fnode)
@@ -85,8 +98,8 @@ class NNGraphChanges(JsonSerializable):
         graph_changed = False
         for input_node_name, params in self._image_format.items():
             graph_changed = True
-            out_edge = G.out_edges(input_node_name)[0]
-            insert_formatter(G, out_edge, params["formatter"], params["normalizer"])
+            input_node = G[input_node_name]
+            insert_formatter(G, input_node, params["formatter"], params["normalizer"])
         if graph_changed:
             G.add_dimensions()
 
@@ -205,10 +218,25 @@ class NNGraph(Graph):
 
     @property
     def has_ssd_postprocess(self):
-        for node in self.nodes():
-            if isinstance(node, SSDDetectorParameters):
-                return True
-        return False
+        return self.has_node_type(SSDDetectorParameters)
+
+    @property
+    def has_resizer(self):
+        return self.has_node_type(ResizerParameters)
+
+    @property
+    def has_expressions(self):
+        return self.has_node_type(ExpressionFusionParameters)
+
+    @property
+    def all_expressions(self):
+        return self.all_node_types(ExpressionFusionParameters)
+
+    def has_node_type(self, node_type):
+        return any(isinstance(node, node_type) for node in self.nodes())
+
+    def all_node_types(self, node_type):
+        return [node for node in self.nodes() if isinstance(node, node_type)]
 
     def set_load_function(self, func):
         self.load_function = func
@@ -273,10 +301,12 @@ class NNGraph(Graph):
         self.add_node(node)
         return node
 
-    def add_input(self, dim: Dim) -> InputParameters:
+    def add_input(self, dim: Dim, in_dim_hint=None, out_dim_hint=None) -> InputParameters:
         self.num_inputs += 1
         node_name = "input_"+str(self.num_inputs)
         node = InputParameters(node_name, dims=dim)
+        node.in_dims_hint = in_dim_hint
+        node.out_dim_hint = out_dim_hint
         self.add_node(node)
         return node
 
@@ -315,8 +345,8 @@ class NNGraph(Graph):
             else:
                 yield (step_idx, node, None, None)
 
-    def adjust_order(self, reshape_weights=True, postprocess=True):
-        adjust_order(self, reshape_weights=reshape_weights, postprocess=postprocess)
+    def adjust_order(self, reshape_weights=True, postprocess=True, debug_function=None):
+        adjust_order(self, reshape_weights=reshape_weights, postprocess=postprocess, debug_function=debug_function)
         LOG.info("adjusted order")
         self.graph_identity.is_adjusted = True
 

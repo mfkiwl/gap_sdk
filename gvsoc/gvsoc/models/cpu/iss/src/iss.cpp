@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -259,7 +259,7 @@ void iss_reset(iss_t *iss, int active)
   {
     for (int i=0; i<ISS_NB_TOTAL_REGS; i++)
     {
-      iss->cpu.regfile.regs[i] = 0;
+      iss->cpu.regfile.regs[i] = i == 0 ? 0 : 0x57575757;
     }
 
     iss_cache_flush(iss);
@@ -284,6 +284,8 @@ int iss_open(iss_t *iss)
 
   iss->cpu.regfile.regs[0] = 0;
   iss->cpu.current_insn = NULL;
+  iss->cpu.stall_insn = NULL;
+  iss->cpu.prev_insn = NULL;
   iss->cpu.state.fetch_cycles = 0;
 
   iss_irq_build(iss);

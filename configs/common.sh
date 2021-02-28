@@ -3,7 +3,7 @@
 export PULP_SDK_HOME=$GAP_SDK_HOME
 
 if [ -n "$GAP_RISCV_GCC_TOOLCHAIN_BASE" ]; then
-    export GAP_RISCV_GCC_TOOLCHAIN=$GAP_RISCV_GCC_TOOLCHAIN_BASE/1.3
+    export GAP_RISCV_GCC_TOOLCHAIN=$GAP_RISCV_GCC_TOOLCHAIN_BASE/1.4
 fi
 
 if [ -z "$GAP_RISCV_GCC_TOOLCHAIN" ]; then
@@ -14,6 +14,7 @@ export PATH="$GAP_RISCV_GCC_TOOLCHAIN/bin":"$GAP_SDK_HOME/tools/bin":$PATH
 
 export TARGET_INSTALL_DIR=$GAP_SDK_HOME/install/$TARGET_CHIP
 export INSTALL_DIR=$GAP_SDK_HOME/install/workstation
+export OPENOCD_SCRIPTS=$GAP_SDK_HOME/install/workstation/share/openocd/scripts
 export DEP_DIRS=$INSTALL_DIR
 export RULES_DIR=$GAP_SDK_HOME/tools/rules
 
@@ -60,7 +61,7 @@ source $GAP_SDK_HOME/gvsoc/setup_gvsoc.sh
 export AT_HOME=$GAP_SDK_HOME/tools/autotiler_v3
 export TILER_PATH=$GAP_SDK_HOME/tools/autotiler_v3
 export TILER_LIB=$TILER_PATH/Autotiler/LibTile.a
-export TILER_INC=$TILER_PATH/include
+export TILER_INC=$TILER_PATH/Autotiler
 export TILER_EMU_INC=$TILER_PATH/Emulation
 export TILER_GENERATOR_PATH=$TILER_PATH/Generators
 export TILER_BILINEAR_RESIZE_GENERATOR_PATH=$TILER_GENERATOR_PATH/BilinearResizes
@@ -93,10 +94,11 @@ export PULP_CONFIGS_PATH=$GAP_SDK_HOME/tools/gap-configs/configs:$PULP_CONFIGS_P
 # GAP LIB
 export GAP_LIB_PATH=$GAP_SDK_HOME/libs/gap_lib
 
-if [ "$TARGET_CHIP" = "GAP8" ]
+if [ "$TARGET_CHIP_FAMILY" = "GAP8" ]
 then
     PROJECT_PATH=$(dirname $GAP_SDK_HOME)
     export VSIM_PATH=$PROJECT_PATH/fe/sim
+    export GAP_OPENOCD_PATH=gap8-openocd
 else
     # For NEW SDK rtl test
     PROJECT_PATH=$(dirname $(dirname $GAP_SDK_HOME))

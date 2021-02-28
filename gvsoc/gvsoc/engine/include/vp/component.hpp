@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -154,6 +154,7 @@ namespace vp {
     
   protected:
     uint8_t reset_val;
+    uint8_t write_mask = 0xFF;
 
   private:
     uint8_t value;
@@ -207,6 +208,7 @@ namespace vp {
 
   protected:
     uint8_t reset_val;
+    uint8_t write_mask = 0xFF;
     
   private:
     uint8_t value;
@@ -260,6 +262,7 @@ namespace vp {
 
   protected:
     uint16_t reset_val;
+    uint16_t write_mask = 0xFFFF;
     
   private:
     uint16_t value;
@@ -284,16 +287,8 @@ namespace vp {
         this->reg_event.event((uint8_t *)&this->value);
     }
     inline uint32_t get_field(int offset, int width) { return (this->value >> offset) & ((1<<width)-1); }
-    inline void write(uint8_t *value) {
-      memcpy((void *)this->value_bytes, (void *)value, this->nb_bytes);
-      if (this->reg_event.get_event_active())
-        this->reg_event.event((uint8_t *)this->value_bytes);
-    }
-    inline void write(int reg_offset, int size, uint8_t *value) {
-      memcpy((void *)(this->value_bytes+reg_offset), (void *)value, size); this->dump_after_write();
-      if (this->reg_event.get_event_active())
-        this->reg_event.event((uint8_t *)this->value_bytes);
-    }
+    inline void write(uint8_t *value) { this->write(0, 4, value); }
+    void write(int reg_offset, int size, uint8_t *value);
     inline void dump_after_write() { this->trace.msg("Modified register (value: 0x%x)\n", this->value); }
     inline void update(uint64_t reg_offset, int size, uint8_t *value, bool is_write)
     {
@@ -313,6 +308,7 @@ namespace vp {
 
   protected:
     uint32_t reset_val;
+    uint32_t write_mask = 0xFFFFFFFF;
     
   private:
     uint32_t value;
@@ -325,10 +321,11 @@ namespace vp {
     void build(vp::component *comp, vp::trace *trace, std::string name="");
     bool access(uint64_t offset, int size, uint8_t *value, bool is_write);
 
+    vp::trace *trace;
+
   protected:
     std::vector<reg *> registers;
     vp::component *comp;
-    vp::trace *trace;
   };
 
   class reg_64: public reg

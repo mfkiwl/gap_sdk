@@ -154,10 +154,13 @@ class SSBL(Binary):
     def __init__(self, flashType, *args, **kargs):
         if flashType == 'hyper':
             romBlockSize = 1024
+            self.xip_dev = 0
         elif flashType == 'spi':
             romBlockSize = 4096
+            self.xip_dev = 1
         elif flashType == 'mram':
             romBlockSize = 1024
+            self.xip_dev = 2
         else:
             raise FatalError(
                 'Flash type %s not suported. ROM boot loader supports hyper and spi flash type' % flashType)
@@ -222,7 +225,8 @@ class SSBL(Binary):
         
         xip_flash_base = 0
         xip_flash_size = 0
-        xip_page_size = 512
+        xip_page_size_cmd = 0  # Page size: 0=512B, 1=1KiB, 2=2KiB, ..., 7 = 64KiB
+        xip_page_size = 512 << xip_page_size_cmd
 
         index = 0
         for segment in self.segments:
@@ -250,9 +254,9 @@ class SSBL(Binary):
         # Legacy bootAddr ROM  field, it is no longer used
         header.appendInt(0x1c000000)
         
-        xip_dev = 0
+        xip_dev = self.xip_dev
+
         xip_vaddr = 0x20000000
-        xip_page_size_cmd = 0 # Page size: 0=512 bytes
         xip_l2_addr = 0x1c190000 - 16*xip_page_size
         xip_l2_nb_pages = 16
         flash_nb_pages = int((xip_flash_size + xip_page_size-1) / xip_page_size)

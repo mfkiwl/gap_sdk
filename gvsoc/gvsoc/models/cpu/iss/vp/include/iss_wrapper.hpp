@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -54,6 +54,7 @@ public:
   void exec_first_instr(vp::clock_event *event);
   static void exec_instr_check_all(void *__this, vp::clock_event *event);
   static inline void exec_misaligned(void *__this, vp::clock_event *event);
+  static inline void irq_req_sync_handler(void *__this, vp::clock_event *event);
 
   static void irq_req_sync(void *__this, int irq);
   void debug_req();
@@ -88,6 +89,9 @@ public:
 
   vp::wire_slave<int>      irq_req_itf;
   vp::wire_master<int>     irq_ack_itf;
+
+  vp::wire_master<bool>    flush_cache_req_itf;
+  vp::wire_slave<bool>     flush_cache_ack_itf;
 
   vp::wire_master<uint32_t> ext_counter[32];
 
@@ -149,8 +153,10 @@ private:
   vp::clock_event *instr_event;
   vp::clock_event *check_all_event;
   vp::clock_event *misaligned_event;
+  vp::clock_event *irq_sync_event;
 
   int irq_req;
+  int irq_req_value;
 
   bool iss_opened;
   int halt_cause;
@@ -171,14 +177,17 @@ private:
   vp::wire_slave<uint32_t> bootaddr_itf;
   vp::wire_slave<bool>     clock_itf;
   vp::wire_slave<bool>     fetchen_itf;
+  vp::wire_slave<bool>     flush_cache_itf;
   vp::wire_slave<bool>     halt_itf;
-  vp::wire_master<bool>     halt_status_itf;
+  vp::wire_master<bool>    halt_status_itf;
 
   bool clock_active;
 
   static void clock_sync(void *_this, bool active);
   static void bootaddr_sync(void *_this, uint32_t value);
   static void fetchen_sync(void *_this, bool active);
+  static void flush_cache_sync(void *_this, bool active);
+  static void flush_cache_ack_sync(void *_this, bool active);
   static void halt_sync(void *_this, bool active);
   inline void enqueue_next_instr(int64_t cycles);
   void halt_core();

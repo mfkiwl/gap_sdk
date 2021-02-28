@@ -60,7 +60,9 @@ HeapRegion_t xHeapRegions[] =
 #if configUSE_IDLE_HOOK == 1
 void vApplicationIdleHook( void )
 {
-    asm volatile("wfi");
+    uint32_t irq = disable_irq();
+    uint32_t evt = hal_eu_evt_wait();
+    restore_irq(irq);
 }
 #endif //configUSE_IDLE_HOOK
 /*-----------------------------------------------------------*/
@@ -114,6 +116,8 @@ void vApplicationStackOverflowHook( TaskHandle_t pxTask, char *pcTaskName )
 /*-----------------------------------------------------------*/
 
 #if configSUPPORT_STATIC_ALLOCATION == 1
+PI_FC_L1 static StackType_t uxIdleTaskStack[ configMINIMAL_STACK_SIZE ];
+PI_FC_L1 static StaticTask_t xIdleTaskTCB;
 void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
 				    StackType_t **ppxIdleTaskStackBuffer,
 				    uint32_t *pulIdleTaskStackSize )
@@ -123,8 +127,6 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
       function then they must be declared static - otherwise they will be allocated on
       the stack and so not exists after this function exits.
     */
-    static StaticTask_t xIdleTaskTCB;
-    static StackType_t uxIdleTaskStack[ configMINIMAL_STACK_SIZE ];
 
     /*
       Pass out a pointer to the StaticTask_t structure in which the Idle task's
@@ -190,6 +192,8 @@ void vApplicationGetTimerTaskMemory( StaticTask_t **ppxTimerTaskTCBBuffer,
 #endif //configSUPPORT_STATIC_ALLOCATION
 
 #endif //configUSE_TIMERS
+/*-----------------------------------------------------------*/
+
 
 #ifndef NDEBUG
 void vPrvAssertFailed( const char *filename, uint32_t line, const char *expr )
@@ -197,4 +201,101 @@ void vPrvAssertFailed( const char *filename, uint32_t line, const char *expr )
     printf("Assertion failed in %s at line %d : %s\n", filename, line, expr);
 }
 #endif
+/*-----------------------------------------------------------*/
+
+
+#if (configUSE_TICKLESS_IDLE == 2)
+void vPortSuppressTicksAndSleep(uint32_t xExpectedIdleTime)
+{
+    uint32_t ulLowPowerTimeBeforeSleep = 0, ulLowPowerTimeAfterSleep = 0;
+    uint32_t ulCmpValNew = 0, ulCmpValOld = 0;
+    uint32_t ulMaxTickCount = 0, ulTickCountSet = 0, ulTickCountStep = 0;
+    uint32_t ulTaskDelayedTick = 0;
+    eSleepModeStatus eSleepStatus;
+    timer_cfg_u cfg = {0};
+
+    uint32_t irq = disable_irq();
+    hal_write32(&(fc_timer(0)->CFG_REG_LO), 0);
+    cfg.field.enable = 1;
+    cfg.field.irq_en = 1;
+    cfg.field.mode = 1;
+    //cfg.field.reset = 1;
+
+    extern struct pi_task_delayed_s delayed_task;
+    struct pi_task *task = delayed_task.fifo_head;
+    if (task != NULL)
+    {
+        ulTaskDelayedTick = task->data[8];
+        if (task->data[8] < xExpectedIdleTime)
+        {
+            xExpectedIdleTime = task->data[8];
+        }
+    }
+
+    eSleepStatus = eTaskConfirmSleepModeStatus();
+
+    if (eSleepStatus == eAbortSleep)
+    {
+        /* Case 1 : No need to enable tickless mode. */
+        restore_irq(irq);
+        hal_write32(&(fc_timer(0)->CFG_REG_LO), cfg.word);
+    }
+    else if ((eSleepStatus == eNoTasksWaitingTimeout) && (ulTaskDelayedTick == 0))
+    {
+        /* Case 2 : Enable tickless mode without timer. */
+        hal_eu_evt_wait();
+        restore_irq(irq);
+        hal_write32(&(fc_timer(0)->CFG_REG_LO), cfg.word);
+    }
+    else
+    {
+        /* Case 3 : Enable tickless mode with timer IRQ. */
+        ulLowPowerTimeBeforeSleep = xTaskGetTickCount();
+        ulCmpValOld = hal_read32(&(fc_timer(0)->CMP_LO));
+        ulMaxTickCount = 0xFFFFFFFF / ulCmpValOld;
+        ulTickCountSet = xExpectedIdleTime;
+        do
+        {
+            irq = disable_irq();
+            if (ulTickCountSet > ulMaxTickCount)
+            {
+                ulTickCountSet = ulMaxTickCount;
+            }
+            xExpectedIdleTime -= ulTickCountSet;
+            hal_compiler_barrier();
+            ulCmpValNew = ulCmpValOld * ulTickCountSet;
+            hal_write32(&(fc_timer(0)->CMP_LO), ulCmpValNew);
+            cfg.field.reset = 0;
+            hal_write32(&(fc_timer(0)->CFG_REG_LO), cfg.word);
+            uint32_t status = EU_CORE_DEMUX->BUFFER;
+            uint32_t evt = hal_eu_evt_wait();
+            status = EU_CORE_DEMUX->BUFFER;
+            hal_write32(&(fc_timer(0)->CFG_REG_LO), 0);
+            if (status & (1 << SYSTICK_IRQN))
+            {
+                ulTickCountStep += ulTickCountSet;
+            }
+            else
+            {
+                ulLowPowerTimeAfterSleep = hal_read32(&(fc_timer(0)->VALUE_LO));
+                ulTickCountStep += ((ulLowPowerTimeAfterSleep / ulCmpValOld) + 1);
+                restore_irq(irq);
+            }
+        } while (xExpectedIdleTime);
+        hal_write32(&(fc_timer(0)->CMP_LO), ulCmpValOld);
+        cfg.field.reset = 1;
+        hal_write32(&(fc_timer(0)->CFG_REG_LO), cfg.word);
+        vTaskStepTick(ulTickCountStep);
+        restore_irq(irq);
+    }
+}
+
+#else
+
+void vPortSuppressTicksAndSleep(uint32_t xExpectedIdleTime)
+{
+}
+
+#endif  /* (configUSE_TICKLESS_IDLE == 2) */
+
 /****************************************************************************/

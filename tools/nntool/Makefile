@@ -1,11 +1,13 @@
 
+NPROC := $(shell nproc)
 SCHEMA_V3=schema_v3
 SCHEMA_HEAD=schema
 SCHEMA_HEAD_NAME=schema_head
+SCHEMA_HEAD_TAG=54151bec863ab6159b3c288f8a3dc6b4d281bb27
 PACKAGES=build/packages
 FLAT_SRC=$(PACKAGES)/flatbuffers
 FLAT_BUILD=$(FLAT_SRC)/build
-TFLITE_DIR=importer/tflite
+TFLITE_DIR=importer/tflite2
 FLAT_TAG=de89bd193370c8b33686f1f33edd63593e48cd3f
 
 all: flatbuffers tflite req
@@ -30,7 +32,7 @@ $(FLAT_BUILD)/Makefile: $(FLAT_BUILD)
 	(cd $(FLAT_BUILD); cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DFLATBUFFERS_BUILD_TESTS=OFF ..)
 
 $(FLAT_BUILD)/flatc: $(FLAT_BUILD)/Makefile
-	make -C $(FLAT_BUILD) -j
+	make -C $(FLAT_BUILD) -j$(NPROC)
 
 flatbuffers/__init__.py: $(FLAT_BUILD)/flatc
 	cp -r $(FLAT_SRC)/python/flatbuffers .
@@ -53,7 +55,7 @@ define schema
 	mkdir -p $$@
 
   build/schemas/$2.fbs: build/schemas
-	(cd $$<; wget https://raw.githubusercontent.com/tensorflow/tensorflow/master/tensorflow/lite/schema/$2.fbs)
+	(cd $$<; wget https://raw.githubusercontent.com/tensorflow/tensorflow/$(SCHEMA_HEAD_TAG)/tensorflow/lite/schema/$2.fbs)
 endef
 
 # $(eval $(call schema,$(SCHEMA_V3),$(SCHEMA_V3)))

@@ -35,7 +35,7 @@ class ActivationParameters(NoSizeChangeParameters, SingleInputAndOutput):
             return ReluActivationParameters(name, upper_bound=6)
         if activation_type == "hswish":
             return HSwishActivationParameters(name)
-        if activation_type == "tanh":
+        if activation_type in ["tanh", "htanh"]:
             return TanHActivationParameters(name)
         raise ValueError("don't know how to create %s"%activation_type)
 
@@ -173,9 +173,9 @@ class SoftMaxParameters(NoSizeChangeParameters, SingleInputAndOutput):
 
     op_name = "softmax"
 
-    def __init__(self, name, beta):
+    def __init__(self, name, beta=None):
         super(SoftMaxParameters, self).__init__(name)
-        self.beta = beta
+        self.beta = 0.0 if beta is None else beta
 
     def get_parameter_size(self):
         return 0

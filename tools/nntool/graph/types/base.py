@@ -54,6 +54,7 @@ class Parameters(Node):
         self._valid_at_options = {"VCD_TRACE_ON": int, "DUMP_TENSORS": int,
                                   "OUT_HOME_MEM_LOC": str, "OUT_EXEC_MEM_LOC": str}
         self._at_options = NodeOptions(self._valid_at_options)
+        self._meta = {}
 
     def get_parameters(self):
         return {}
@@ -63,6 +64,10 @@ class Parameters(Node):
 
     def get_gen_ctrl(self):
         return GenCtrl(self.at_options)
+
+    @property
+    def meta(self):
+        return self._meta
 
     @property
     def valid_at_options(self):
@@ -142,7 +147,7 @@ class Parameters(Node):
 
     @out_dims.setter
     def out_dims(self, value):
-        LOG.debug("%s out dims set to %s", self.__class__.__name__, str(value))
+        LOG.debug("%s out dims set to %s", self.__class__.__name__, [str(val) for val in value])
         self._out_dims = value
 
     @abstractmethod
@@ -162,7 +167,7 @@ class Parameters(Node):
     def clone(self, name, groupn=None):
         pass
 
-    def clone_dim_with_hints(self, dims, hint_dir="in"):
+    def clone_dim_with_hints(self, dims, hint_dir="in", hint_idx=None):
         if hint_dir == "in":
             hints = self._in_dims_hint
         else:
@@ -175,8 +180,9 @@ class Parameters(Node):
                 cloned_dims.append(dim.clone(['c', 'h', 'w']))
             else:
                 cloned_dim = dim.clone()
-                if hints and hints[dim_idx]:
-                    cloned_dim.apply_naming_hints(hints[dim_idx])
+                hint = None if hints is None else hints[hint_idx] if hint_idx is not None else hints[dim_idx]
+                if hint:
+                    cloned_dim.apply_naming_hints(hint)
                 cloned_dims.append(cloned_dim)
         return cloned_dims
 
@@ -239,9 +245,15 @@ class FilterLikeParameters(Parameters, SingleInputAndOutput):
 
 class Transposable(Parameters):
 
-    def __init__(self, *args, transpose_in=None, transpose_out=None, **kwargs):
+    def __init__(self, *args,
+                 transpose_in=None,
+                 transpose_out=None,
+                 eliminate_transposes_pass_down=False,
+                 eliminate_transposes_pass_up=False, **kwargs):
         self._transpose_in = transpose_in
         self._transpose_out = transpose_out
+        self._eliminate_transposes_pass_down = eliminate_transposes_pass_down
+        self._eliminate_transposes_pass_up = eliminate_transposes_pass_up
         super(Transposable, self).__init__(*args, **kwargs)
 
     @staticmethod
@@ -255,6 +267,14 @@ class Transposable(Parameters):
         trans = list(range(len(dim.shape)))
         trans.insert(0, trans.pop())
         return trans
+
+    @property
+    def eliminate_transposes_pass_up(self):
+        return self._eliminate_transposes_pass_up
+
+    @property
+    def eliminate_transposes_pass_down(self):
+        return self._eliminate_transposes_pass_down
 
     @property
     def transpose_in(self):
@@ -279,9 +299,9 @@ class Transposable(Parameters):
     def __str__(self):
         trans = []
         if self.transpose_in:
-            trans.append("t_in: %s"%",".join(str(trans) for trans in self.transpose_in))
+            trans.append("t_in: %s" % ",".join(str(trans) for trans in self.transpose_in))
         if self.transpose_out:
-            trans.append("t_out: %s"%",".join(str(trans) for trans in self.transpose_out))
+            trans.append("t_out: %s" % ",".join(str(trans) for trans in self.transpose_out))
         return ", ".join(trans)
 
 #pylint: disable=abstract-method
@@ -289,11 +309,12 @@ class Transposable(Parameters):
 
 class FilterParameters(Parameters, SingleInputAndOutput):
 
-    def __init__(self, *args, filt=None, has_bias=False, **kwargs):
+    def __init__(self, *args, filt=None, has_bias=False, use_compressed=False, **kwargs):
         assert filt
         super(FilterParameters, self).__init__(*args, **kwargs)
         self.has_bias = has_bias
         self.filter = filt
+        self._use_compressed = use_compressed
         self.stats = None
         self._weights = None
         self._biases = None
@@ -303,7 +324,7 @@ class FilterParameters(Parameters, SingleInputAndOutput):
     @property
     def weights(self):
         if self._constant_store:
-            return self._constant_store.get(self, 1)
+            return self._constant_store.get(self, 1, get_compressed=self._use_compressed)
         else:
             return self._weights
 
@@ -314,10 +335,16 @@ class FilterParameters(Parameters, SingleInputAndOutput):
         else:
             self._weights = val
 
+    def get_uncompressed_weights(self):
+        if self._constant_store:
+            return self._constant_store.get(self, 1, get_compressed=False)
+        else:
+            return self._weights
+
     @property
     def biases(self):
         if self._constant_store:
-            return self._constant_store.get(self, 2)
+            return self._constant_store.get(self, 2, get_compressed=self._use_compressed)
         else:
             return self._biases
 
@@ -327,6 +354,20 @@ class FilterParameters(Parameters, SingleInputAndOutput):
             self._constant_store.set(self, 2, val)
         else:
             self._biases = val
+
+    def get_uncompressed_biases(self):
+        if self._constant_store:
+            return self._constant_store.get(self, 2, get_compressed=False)
+        else:
+            return self._biases
+
+    @property
+    def use_compressed(self):
+        return self._use_compressed
+
+    @use_compressed.setter
+    def use_compressed(self, val):
+        self._use_compressed = val
 
     def get_parameters(self):
         return {'weights': self.weights, 'biases': self.biases}

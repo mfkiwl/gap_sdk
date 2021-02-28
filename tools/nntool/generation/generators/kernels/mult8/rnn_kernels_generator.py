@@ -35,33 +35,41 @@ def rnn_kernels_generator(gen, node, qrec, in_eparams, out_eparams, cname):
     return True
 
 # int RNN_Stack_SQ8(
-# 	char *Name,
-# 	CNN_GenControl_T *Ctrl,
-
-# 	int NCells,
-# 	int K0,
-# 	int K1,
-# 	int DimState,
-# 	int DimIn
-# 	)
-# int LSTM_Stack_SQ8(
 #         char *Name,
 #         CNN_GenControl_T *Ctrl,
-
+#         int BiasDataSize,
+#         int FeatDataSize,
 #         int NCells,
 #         int K0,
 #         int K1,
 #         int DimState,
-#         int DimIn
-#         )
+#         int DimIn,
+#         int AlwaysReset,
+#         int Revert
+#         );
+
+# int LSTM_Stack_SQ8(
+#         char *Name,
+#         CNN_GenControl_T *Ctrl,
+#         int BiasDataSize,
+#         int FeatDataSize,
+#         int NCells,
+#         int K0,
+#         int K1,
+#         int DimState,
+#         int DimIn,
+#         int AlwaysReset,
+#         int Revert
+#         );
 
 
-def gen_rnn_sq8(code_block, kname, cname, ctrl, ncells, k0, k1, dim_state, dim_in):
+def gen_rnn_sq8(code_block, kname, cname, ctrl, ncells, k0, k1, dim_state, dim_in, revert):
     code_block.write(
-        '{}("{}", {}, 4, 1, {}, {}, {}, {}, {}, 0, 0);'.format(kname, cname, ctrl,
-                                                               ncells, k0,
-                                                               k1, dim_state,
-                                                               dim_in))
+        '{}("{}", {}, 4, 1, {}, {}, {}, {}, {}, 0, {});'.format(kname, cname, ctrl,
+                                                                ncells, k0,
+                                                                k1, dim_state,
+                                                                dim_in,
+                                                                revert))
 
 
 class RNNKernel(AutotilerKernel):
@@ -83,6 +91,11 @@ class RNNKernel(AutotilerKernel):
         self.n_inputs = rnn_params.n_inputs
         self.n_input_cells = rnn_params.n_input_cells
         self.n_output_cells = rnn_params.n_output_cells
+        self.revert = rnn_params.revert
+        if not rnn_params.hard_act and gen_ctrl.rnn_use_hardact is None:
+            gen_ctrl.rnn_use_hardact = 0
+        if not rnn_params.rnn_same_inout_scale and gen_ctrl.rnn_same_inout_scale is None:
+            gen_ctrl.rnn_same_inout_scale = 0
         self.cname = cname
         self.node_name = node_name
         self.at_ver = at_ver
@@ -102,5 +115,6 @@ class RNNKernel(AutotilerKernel):
         gen_rnn_sq8(code_block, self.kname, self.cname, gen_ctrl, self.n_cells,
                     self.n_input_cells, self.n_output_cells,
                     self.n_states,
-                    self.n_inputs)
+                    self.n_inputs,
+                    self.revert and "1" or "0")
         return code_block

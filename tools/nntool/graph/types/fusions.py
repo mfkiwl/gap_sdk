@@ -14,9 +14,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-from copy import deepcopy
 from ..dim import Dim
-from .base import (Parameters, NodeOptions, FilterParameters, SingleInputAndOutput, NNEdge)
+from .base import (Parameters, NodeOptions, FilterParameters,
+                   SensitiveToOrder, SingleInputAndOutput, NNEdge)
 
 LOG = logging.getLogger("nntool." + __name__)
 
@@ -68,22 +68,28 @@ class FusionBase(Parameters):
         # subgraph = deepcopy(subgraph)
         self._subgraph = subgraph
         if not inout_set:
+            in_hints = kwargs.get('in_dims_hint')
+            out_hints = kwargs.get('out_dims_hint')
             nodes = self.contained_nodes()
             if input_mapping is None:
                 input_mapping = [[(nodes[0], 0)]]
 
             for from_idx, node_list in enumerate(input_mapping):
-                for inp_idx, (node, to_idx) in enumerate(node_list):
-                    input_node = FusionInputParameters("%s_in_%s_%s" % (name, from_idx, inp_idx),
-                                                       idx=from_idx)
+                hint = [in_hints[from_idx]] if in_hints and len(in_hints) > from_idx else None
+                input_node = FusionInputParameters("%s_in_%s" % (name, from_idx),
+                                                   idx=from_idx,
+                                                   in_dims_hint=hint, out_dims_hint=hint)
+                for node, to_idx in node_list:
                     subgraph.add_edge(NNEdge(input_node, node, to_idx=to_idx))
 
             if output_mapping is None:
                 output_mapping = [(nodes[-1], 0)]
 
             for to_idx, (node, from_idx) in enumerate(output_mapping):
+                hint = [out_hints[to_idx]] if out_hints and len(out_hints) > to_idx else None
                 output_node = FusionOutputParameters("%s_out_%s" % (name, to_idx),
-                                                     idx=to_idx)
+                                                     idx=to_idx,
+                                                     in_dims_hint=hint, out_dims_hint=hint)
                 subgraph.add_edge(NNEdge(node, output_node, from_idx=from_idx))
 
         inputs_by_idx = sorted(list({node.idx: node for node in subgraph
@@ -93,21 +99,23 @@ class FusionBase(Parameters):
                                  if isinstance(node, FusionOutputParameters)],
                                 key=lambda x: x.idx)
 
-        self.in_dims_hint = [None]*len(inputs_by_idx)
-        for idx, node in enumerate(inputs_by_idx):
-            edge = subgraph.out_edges(node.name)[0]
-            if edge.to_node.in_dims_hint:
-                self.in_dims_hint[idx] = edge.to_node.in_dims_hint[edge.to_idx]
-        if all(hint is None for hint in self.in_dims_hint):
-            self.in_dims_hint = None
+        if not self.in_dims_hint:
+            self.in_dims_hint = [None]*len(inputs_by_idx)
+            for idx, node in enumerate(inputs_by_idx):
+                edge = subgraph.out_edges(node.name)[0]
+                if edge.to_node.in_dims_hint:
+                    self.in_dims_hint[idx] = edge.to_node.in_dims_hint[edge.to_idx]
+            if all(hint is None for hint in self.in_dims_hint):
+                self.in_dims_hint = None
 
-        self.out_dims_hint = [None]*len(outputs_by_idx)
-        for idx, node in enumerate(outputs_by_idx):
-            edge = subgraph.in_edges(node.name)[0]
-            if edge.to_node.out_dims_hint:
-                self.out_dims_hint[idx] = edge.from_node.out_dims_hint[edge.from_idx]
-        if all(hint is None for hint in self.out_dims_hint):
-            self.out_dims_hint = None
+        if not self.out_dims_hint:
+            self.out_dims_hint = [None]*len(outputs_by_idx)
+            for idx, node in enumerate(outputs_by_idx):
+                edge = subgraph.in_edges(node.name)[0]
+                if edge.to_node.out_dims_hint:
+                    self.out_dims_hint[idx] = edge.from_node.out_dims_hint[edge.from_idx]
+            if all(hint is None for hint in self.out_dims_hint):
+                self.out_dims_hint = None
 
         self.fusion_type = fusion_type
 
@@ -124,7 +132,9 @@ class FusionBase(Parameters):
 
     @property
     def op_name(self):
-        return self.fusion_op_name + '_' + self.fusion_type
+        if self.fusion_type:
+            return self.fusion_op_name + '_' + self.fusion_type
+        return self.fusion_op_name
 
     @property
     def subgraph(self):
@@ -169,10 +179,11 @@ class FusionBase(Parameters):
         return 0
 
     def get_output_size(self, in_dims):
+        self.in_dims = self.clone_dim_with_hints(in_dims)
         node_out_dims = []
         for node in self.subgraph.dfs():
             if isinstance(node, FusionInputParameters):
-                node_in_dims = [in_dims[node.idx]]
+                node_in_dims = self.clone_dim_with_hints([in_dims[node.idx]])
             else:
                 node_in_dims = []
                 for edge in self.subgraph.in_edges(node.name):
@@ -182,14 +193,14 @@ class FusionBase(Parameters):
             node.out_dims = out_dims
             if isinstance(node, FusionOutputParameters):
                 insert_ext(node_out_dims, out_dims[0], node.idx)
-
+        self.out_dims = node_out_dims
         return node_out_dims
 
     def __str__(self):
         return "{}".format(", ".join([str(node).strip() for node in self.contained_nodes()]))
 
 
-class MatScaleFusionParameters(FusionBase):
+class MatScaleFusionParameters(FusionBase, SensitiveToOrder):
     fusion_op_name = "matscale"
 
     def __init__(self, *args, activation=None, **kwargs):
@@ -200,7 +211,7 @@ class MatScaleFusionParameters(FusionBase):
         return [Dim.broadcast(in_dims)]
 
 
-class ConvFusionParameters(FusionBase, SingleInputAndOutput):
+class ConvFusionParameters(FusionBase, SingleInputAndOutput, SensitiveToOrder):
     '''Fusion of operators. At present restricted to single input and output but
     this could be removed perhaps'''
 

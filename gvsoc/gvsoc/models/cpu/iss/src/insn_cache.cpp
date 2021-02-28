@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -73,6 +73,12 @@ static void insn_block_init(iss_insn_block_t *b, iss_addr_t pc)
 void iss_cache_flush(iss_t *iss)
 {
   flush_cache(iss, &iss->cpu.insn_cache);
+  if (iss->cpu.current_insn)
+    iss->cpu.current_insn = insn_cache_get_decoded(iss, iss->cpu.current_insn->addr);
+  if (iss->cpu.prev_insn)
+    iss->cpu.prev_insn = insn_cache_get_decoded(iss, iss->cpu.prev_insn->addr);
+  if (iss->cpu.stall_insn)
+    iss->cpu.stall_insn = insn_cache_get_decoded(iss, iss->cpu.stall_insn->addr);
 }
 
 
@@ -88,11 +94,14 @@ iss_insn_t *insn_cache_get(iss_t *iss, iss_addr_t pc)
 
   while (block)
   {
-    if (block->pc == pc_base)
+    if (block->is_init)
     {
-      return &block->insns[insn_id];
+      if (block->pc == pc_base)
+      {
+        return &block->insns[insn_id];
+      }
     }
-    if (!block->is_init)
+    else
     {
       first_free = block;
     }

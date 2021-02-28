@@ -12,8 +12,12 @@
 
 #include "Gap.h"
 
-#define Max(a, b)               (((a)>(b))?(a):(b))
-#define Min(a, b)               (((a)<(b))?(a):(b))
+#ifndef Max
+	#define Max(a, b)               (((a)>(b))?(a):(b))
+#endif
+#ifndef Min
+	#define Min(a, b)               (((a)<(b))?(a):(b))
+#endif
 
 typedef struct {
 	unsigned char * __restrict__ In;
@@ -26,5 +30,17 @@ typedef struct {
 	unsigned int FirstLineIndex;
 } KerResizeBilinear_ArgT;
 
+typedef struct {
+	unsigned char * __restrict__ In;
+	unsigned int Win;
+	unsigned int Hin;
+	unsigned char * __restrict__ Out;
+	unsigned int Wout;
+	unsigned int Hout;
+	unsigned int HTileOut;
+	unsigned int FirstLineIndex;
+} KerResizeNearestNeighbor_ArgT;
+
 void KerResizeBilinear(KerResizeBilinear_ArgT *Arg);
+void KerResizeNearestNeighbor(KerResizeNearestNeighbor_ArgT *Arg);
 #endif //__IIBASICKERNELS_H__

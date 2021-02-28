@@ -1,3 +1,7 @@
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wpointer-sign"
+#pragma GCC diagnostic ignored "-Wsign-compare"
 #include "Gap.h"
 #include "CNN_BasicKernels_SQ8.h"
 
@@ -31,16 +35,6 @@ static int LastDefinedOutput(unsigned int DimIn, unsigned int F, unsigned int Pa
 	// k*S + ((F-1)/2 - PadL + F/2) < Dim  => k < (Dim-((F-1)/2 - PadL + (F/2)) + S-1)/S
 
 	return ((DimIn - ((F-1)/2 - PadL + (F/2)) + Stride-1)/Stride);
-}
-
-static int __attribute__ ((always_inline)) MinCond(int a, int b)
-
-{
-#ifdef DIM_ALWAYS_GREATER_THAN_FILTER
-	return a;
-#else
-	return Max(0, Min(a, b));
-#endif
 }
 
 /* Padded Convolution Border processing
@@ -1118,7 +1112,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 	if (PadT) { /* Top */
 		int ht = PadTOrg, hb = H - Hi_F + Fh2;
 	       	for (unsigned int h=0; h<Ho_F; h++) {
-			int Fh_min = ht, Fh_max = MinCond(Fh, hb); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
+			int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
 			for (unsigned int w=Wo_F; w<Wo_L; w++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
@@ -1131,7 +1125,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 	if (PadB) { /* Bottom */
 		int ht = 0, hb = H - (Hi_L+Stride) + Fh2;
 	       	for (unsigned int h=Ho_L; h<Ho; h++) {
-			int Fh_min = ht, Fh_max = MinCond(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+			int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 			for (unsigned int w=Wo_F; w<Wo_L; w++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
@@ -1144,7 +1138,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 	if (PadL) { /* Left */
 		int wl = PadLOrg, wr = W - Wi_F + Fw2;
 	       	for (unsigned int w=0; w<Wo_F; w++) {
-			int Wh_min = wl, Wh_max = MinCond(Fw, wr); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
+			int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
 			for (unsigned int h=Ho_F; h<Ho_L; h++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=0; i<Fh; i++) 
@@ -1157,7 +1151,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 	if (PadR) { /* Right */
 		int wl = 0, wr = W - (Wi_L+Stride) + Fw2;
 	       	for (unsigned int w=Wo_L; w<Wo; w++) {
-			int Wh_min = wl, Wh_max = MinCond(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+			int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 			for (unsigned int h=Ho_F; h<Ho_L; h++) {
 		       		int Acc = Out[Wo*h+w];
 				for (unsigned int i=0; i<Fh; i++) 
@@ -1175,7 +1169,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = Out[Wo*h+w];
 					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only. ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1191,7 +1185,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = Out[Wo*h+w];
 					// ht Can't be > F by definition of Ho_L so we can remove and use ht only. ht Can't be > F by definition of Ho_L so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1209,7 +1203,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = Out[Wo*h+w];
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1225,7 +1219,7 @@ void __attribute__ ((noinline)) KerConvNxNStrideS_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = Out[Wo*h+w];
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1270,7 +1264,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 	if (PadT) { /* Top */
 		int ht = PadTOrg, hb = H - Hi_F + Fh2;
 	       	for (unsigned int h=0; h<Ho_F; h++) {
-			int Fh_min = ht, Fh_max = MinCond(Fh, hb); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
+			int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
 			for (unsigned int w=Wo_F; w<Wo_L; w++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
@@ -1283,7 +1277,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 	if (PadB) { /* Bottom */
 		int ht = 0, hb = H - (Hi_L+StrideY) + Fh2;
 	       	for (unsigned int h=Ho_L; h<Ho; h++) {
-			int Fh_min = ht, Fh_max = MinCond(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+			int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 			for (unsigned int w=Wo_F; w<Wo_L; w++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
@@ -1296,7 +1290,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 	if (PadL) { /* Left */
 		int wl = PadLOrg, wr = W - Wi_F + Fw2;
 	       	for (unsigned int w=0; w<Wo_F; w++) {
-			int Wh_min = wl, Wh_max = MinCond(Fw, wr); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
+			int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
 			for (unsigned int h=Ho_F; h<Ho_L; h++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=0; i<Fh; i++) 
@@ -1309,7 +1303,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 	if (PadR) { /* Right */
 		int wl = 0, wr = W - (Wi_L+StrideX) + Fw2;
 	       	for (unsigned int w=Wo_L; w<Wo; w++) {
-			int Wh_min = wl, Wh_max = MinCond(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+			int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 			for (unsigned int h=Ho_F; h<Ho_L; h++) {
 		       		int Acc = Out[Wo*h+w];
 				for (unsigned int i=0; i<Fh; i++) 
@@ -1327,7 +1321,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = Out[Wo*h+w];
 					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only. ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1343,7 +1337,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = Out[Wo*h+w];
 					// ht Can't be > F by definition of Ho_L so we can remove and use ht only. ht Can't be > F by definition of Ho_L so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1361,7 +1355,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = Out[Wo*h+w];
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1377,7 +1371,7 @@ void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = Out[Wo*h+w];
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1421,7 +1415,7 @@ void __attribute__ ((noinline)) KerConvNxMDxDyStrideSxSy_Border_SQ8(
 	int Hi_L = Hi_F + (Ho_L-1)*StrideY;     // iff Hi_L>Hi_F
 	int Wi_F = TFw2 - PadLOrg;
 	int Wi_L = Wi_F + (Wo_L-1)*StrideX;     // iff Wi_L>Wi_F
-	int Prec=10;
+//	int Prec=10;
 	int InvDh = ((1<<Prec)+Dh-1)/Dh;
 	int InvDw = ((1<<Prec)+Dw-1)/Dw;
 
@@ -1449,7 +1443,7 @@ void __attribute__ ((noinline)) KerConvNxMDxDyStrideSxSy_Border_SQ8(
 		int hb = H - (Hi_L+StrideY) + TFh2;
 		for (unsigned int h=Ho_L; h<Ho; h++) {
 			int hba = gap_mulsN(hb-1, InvDh, Prec) + 1; // hba = (hb-1)/Dh+1
-			int Fh_max = MinCond(hba, Fh);
+			int Fh_max = AT_CLIP_POS(hba, Fh);
 			for (unsigned int w=Wo_F; w<Wo_L; w++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=0; i<Fh_max; i++)
@@ -1477,7 +1471,7 @@ void __attribute__ ((noinline)) KerConvNxMDxDyStrideSxSy_Border_SQ8(
 		int wr = W - (Wi_L+StrideX) + TFw2;
 		for (unsigned int w=Wo_L; w<Wo; w++) {
 			int wra = gap_mulsN(wr-1, InvDw, Prec) + 1; // wra = (wr-1)/Dw+1
-			int Wr_max = MinCond(wra, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+			int Wr_max = AT_CLIP_POS(wra, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 			for (unsigned int h=Ho_F; h<Ho_L; h++) {
 				int Acc = Out[Wo*h+w];
 				for (unsigned int i=0; i<Fh; i++)
@@ -1513,7 +1507,7 @@ void __attribute__ ((noinline)) KerConvNxMDxDyStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = Out[Wo*h+w];
 					int wra = gap_mulsN(wr-1, InvDw, Prec) + 1; // wra = (wr-1)/Dw+1
-					int Wr_max = MinCond(wra, Fw), Fh_min = hta;
+					int Wr_max = AT_CLIP_POS(wra, Fw), Fh_min = hta;
 					for (unsigned int i=Fh_min; i<Fh; i++)
 						for (unsigned int j=0; j<Wr_max; j++) Acc += In[(h*StrideY-PadTOrg+i*Dh)*W + (w*StrideX-PadLOrg+j*Dw)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1532,7 +1526,7 @@ void __attribute__ ((noinline)) KerConvNxMDxDyStrideSxSy_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = Out[Wo*h+w];
 					int wla = gap_mulsN(wl-1, InvDw, Prec) + 1; // wla = (wl-1)/Dw+1
-					int Wl_min = wla, Fh_max = MinCond(hba, Fh);
+					int Wl_min = wla, Fh_max = AT_CLIP_POS(hba, Fh);
 					for (unsigned int i=0; i<Fh_max; i++)
 						for (unsigned int j=Wl_min; j<Fw; j++) Acc += In[(h*StrideY-PadTOrg+i*Dh)*W + (w*StrideX-PadLOrg+j*Dw)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -1549,7 +1543,7 @@ void __attribute__ ((noinline)) KerConvNxMDxDyStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = Out[Wo*h+w];
 					int wra = gap_mulsN(wr-1, InvDw, Prec) + 1; // wra = (wr-1)/Dw+1
-					int Wr_max = MinCond(wra, Fw), Fh_max = MinCond(hba, Fh);
+					int Wr_max = AT_CLIP_POS(wra, Fw), Fh_max = AT_CLIP_POS(hba, Fh);
 					for (unsigned int i=0; i<Fh_max; i++)
 						for (unsigned int j=0; j<Wr_max; j++) Acc += In[(h*StrideY-PadTOrg+i*Dh)*W + (w*StrideX-PadLOrg+j*Dw)]*Filter[Fw*i+j];
 					Out[Wo*h+w] = Acc;
@@ -2970,9 +2964,9 @@ static void __attribute__ ((noinline)) KerConv13x1Stride1x1_Body_SQ8(
 	for (int h=Ho_F; h<Ho_L; h++) {
 		signed char *PtI = (In + (h*StrideY-PadT)*W + (Wo_F*StrideX-PadL));
 		int *PtO = PtO1;
-		v4s V0 = ((v4s *) PtI)[0];
-		v4s V1 = ((v4s *) PtI)[4];
-		v4s V2 = ((v4s *) PtI)[8];
+		v4s V0 = *((v4s *) &PtI[0]);
+		v4s V1 = *((v4s *) &PtI[4]);
+		v4s V2 = *((v4s *) &PtI[8]);
 		int V3 = PtI[12];
 		PtI += 13;
 		for (int w=Wo_F; w<Wo_L; w++) {
@@ -3051,7 +3045,9 @@ static void __attribute__ ((noinline)) KerConvNxMStrideSxSy_Body_SQ8(
 		for (unsigned int w=Wo_F; w<Wo_L; w++) {
 			int Acc = *PtO;
 			for (unsigned int i=0; i<Fh; i++) {
-				for (unsigned int j=0; j<Fw; j++) Acc += In[(h*StrideY-PadT+i)*W + (w*StrideX-PadL+j)]*Filter[Fw*i+j];
+				for (unsigned int j=0; j<Fw; j++) {
+					Acc += In[(h*StrideY-PadT+i)*W + (w*StrideX-PadL+j)]*Filter[Fw*i+j];
+				}
 			}
 			*PtO = Acc; PtO++;
 		}
@@ -4831,3 +4827,4 @@ void KerConvNxMDxDyStrideSxSy_SQ8(KerConv_SQ8_T *Arg)
 	gap_waitbarrier(0);
 }
 
+#pragma GCC diagnostic pop

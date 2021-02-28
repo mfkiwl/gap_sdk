@@ -79,6 +79,10 @@ AUTO_TILER_OPTIONS = [
         'name': 'GRAPH_SIZE_OPT', 'type': 'graph', 'var_type': int, 'choices': (0, 1, 2),
         'descr': '0: Default make opt, 1: O2 for all layers, Os for xtor,dxtor,runner, 2: Os for layers and  xtor,dxtor,runner', 'default': 0
     },
+    {
+        'name': 'GRAPH_WARM_CONSTRUCT', 'type': 'graph', 'var_type': bool, 'choices': [True, False],
+        'descr': 'Generate construct/destruct functions with the Warm option to only allocate/deallocate L1 buffer', 'default': False
+    },
 ]
 
 DEFAULT_GEN_OPTS = {
@@ -98,6 +102,8 @@ DEFAULT_GEN_OPTS = {
     'tensor_directory': '.',
     'model_directory': '.',
     'model_file': 'model.c',
+    'basic_kernel_source_file': 'Expression_Kernels.c',
+    'basic_kernel_header_file': 'Expression_Kernels.h',
     'at_ver': 3,
     'memory_devices': MemoryDeviceInfos.default(),
     'l3_ram_device': 'AT_MEM_L3_HRAM',
@@ -129,6 +135,8 @@ DEFAULT_GEN_OPTS_DESCRIPTIONS = {
     'tensor_directory': {'type': str, 'descr': 'directory to dump tensors to'},
     'model_directory': {'type': str, 'descr': 'directory to dump model to'},
     'model_file': {'type': str, 'descr': 'filename for model'},
+    'basic_kernel_source_file': {'type': str, 'descr': 'filename for generated basic kernels'},
+    'basic_kernel_header_file': {'type': str, 'descr': 'filename for generated basic kernel headers'},
     'at_ver': {'type': int, 'descr': 'AutoTiler version'},
     'l3_ram_device': {'type': str, 'descr': 'L3 RAM device', 'choices': AT_L3_RAM_DEVICES},
     'l3_flash_device': {'type': str, 'descr': 'L3 FLASH device', 'choices': AT_L3_FLASH_DEVICES},

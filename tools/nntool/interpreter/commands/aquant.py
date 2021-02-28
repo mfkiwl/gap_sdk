@@ -19,6 +19,7 @@ import logging
 from cmd2 import Cmd2ArgumentParser, with_argparser
 
 from graph.matches.propagate_softmax_sym_mult_qrec import PropagateSoftmaxSymQrec
+from graph.matches.propagate_rnn_sym_mult_qrec import PropagateUpRNNInputQ
 from graph.matches.equalize_sym_mult_concats import EqualizeSymmetricMultiplicativeQuantivedConcats
 from interpreter.nntool_shell_base import NNToolShellBase
 from interpreter.shell_utils import (glob_input_files, input_options)
@@ -62,7 +63,7 @@ class AquantCommand(NNToolShellBase):
     @with_argparser(parser_aquant)
     def do_aquant(self, args: argparse.Namespace):
         """
-Attempt to calculate quantization for graph using one or more sample imput files."""
+Attempt to calculate quantization for graph using one or more sample input files."""
         self._check_graph()
         input_args = self._get_input_args(args)
         processed_input = False
@@ -73,7 +74,7 @@ Attempt to calculate quantization for graph using one or more sample imput files
             data = [import_data(input_file, **input_args) for input_file in file_per_input]
             stats_collector.collect_stats(self.G, data)
         if not processed_input:
-            self.perror("No imput files found")
+            self.perror("No input files found")
             return
         if args.scheme == 'SQ8':
             astats = stats_collector.stats
@@ -92,6 +93,8 @@ Attempt to calculate quantization for graph using one or more sample imput files
         if args.scheme == 'SQ8':
             concats_matcher = EqualizeSymmetricMultiplicativeQuantivedConcats()
             concats_matcher.match(self.G, set_identity=False)
+            rnns_matcher = PropagateUpRNNInputQ()
+            rnns_matcher.match(self.G, set_identity=False)
             softmax_qrec_matcher = PropagateSoftmaxSymQrec()
             softmax_qrec_matcher.match(self.G, set_identity=False)
         LOG.info("Quantization set. Use qshow command to see it.")

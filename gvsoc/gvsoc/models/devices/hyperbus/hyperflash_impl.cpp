@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -280,14 +280,46 @@ void Hyperflash::handle_access(int reg_access, int address, int read, uint8_t da
 int Hyperflash::preload_file(char *path)
 {
   this->get_trace()->msg(vp::trace::LEVEL_INFO, "Preloading memory with stimuli file (path: %s)\n", path);
-  FILE *file = fopen(path, "r");
-  if (file == NULL) {
-    printf("Unable to open stimulus file (path: %s, error: %s)\n", path, strerror(errno));
-    return -1;
-  }
 
-  if (fread(this->data, 1, this->size, file) == 0)
-    return -1;
+  if (this->get_js_config()->get_child_bool("writeback"))
+  {
+    int fd = open(path, O_RDWR | O_CREAT, 0600);
+    if (fd < 0) {
+      printf("Unable to open writeback file (path: %s, error: %s)\n", path, strerror(errno));
+      return 0;
+    }
+
+    if (ftruncate(fd, this->size) < 0) {
+      printf("Unable to truncate writeback file (path: %s, error: %s)\n", path, strerror(errno));
+      close(fd);
+      return -1;
+    }
+    this->data = (uint8_t *) mmap(NULL, this->size, PROT_READ | PROT_WRITE, MAP_SHARED , fd, 0);
+    if (!this->data) {
+      printf("Unable to mmap writeback file (path: %s, error: %s)\n", path, strerror(errno));
+      close(fd);
+      return -1;
+    }
+
+    /*
+    * fd is even not useful anymore and can be closed.
+    * Data are automatically write back to the file
+    * at random time during execution (depending of the kernel cache behavior)
+    * and, anyway, at the termination of the application.
+    */
+    close(fd);
+  }
+  else
+  {
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+      printf("Unable to open stimulus file (path: %s, error: %s)\n", path, strerror(errno));
+      return -1;
+    }
+
+    if (fread(this->data, 1, this->size, file) == 0)
+      return -1;
+  }
 
   return 0;
 }
@@ -434,6 +466,7 @@ int Hyperflash::build()
   }
 
   js::config *writeback_file_conf = conf->get("writeback_file");
+
   if (writeback_file_conf)
   {
     if (this->setup_writeback_file(writeback_file_conf->get_str().c_str()))

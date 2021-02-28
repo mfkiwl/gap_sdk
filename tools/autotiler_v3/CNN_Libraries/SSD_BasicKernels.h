@@ -20,8 +20,15 @@
 #include "Gap.h"
 #include <stdint.h>
 
-#define Max(a, b)               (((a)>(b))?(a):(b))
+#ifndef Abs
+#define Abs(a)      (((int)(a)<0)?(-(a)):(a))
+#endif
+#ifndef Min
 #define Min(a, b)               (((a)<(b))?(a):(b))
+#endif
+#ifndef Max
+#define Max(a, b)               (((a)>(b))?(a):(b))
+#endif
 
 typedef struct{
 	int32_t x;
@@ -35,6 +42,8 @@ typedef struct{
 
 typedef struct {
     int16_t *bbox_idx;
+    bbox_t * bbox_out;
+    int16_t n_max_bb;
 }Ker_SSD_Init_ArgT;
 
 void Ker_SSD_Init(Ker_SSD_Init_ArgT *Arg);

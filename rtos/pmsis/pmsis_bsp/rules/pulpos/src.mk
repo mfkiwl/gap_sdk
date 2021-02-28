@@ -84,9 +84,25 @@ PULP_SRCS += $(BSP_SPIFLASH_SRC)
 CONFIG_FLASH = 1
 endif
 
+ifeq '$(CONFIG_ATXP032)' '1'
+PULP_SRCS += flash/spiflash/atxp032.c
+CONFIG_FLASH = 1
+CONFIG_HYPER = 1
+endif
+
 ifeq '$(CONFIG_FLASH)' '1'
 PULP_SRCS += $(BSP_FLASH_SRC)
 CONFIG_BSP = 1
+endif
+
+ifeq '$(CONFIG_HIMAX)' '1'
+CONFIG_CAMERA = 1
+CONFIG_I2C = 1
+PULP_SRCS += $(BSP_HIMAX_SRC)
+endif
+
+ifeq '$(CONFIG_CAMERA)' '1'
+PULP_SRCS += $(BSP_CAMERA_SRC)
 endif
 
 ifeq '$(CONFIG_BSP)' '1'

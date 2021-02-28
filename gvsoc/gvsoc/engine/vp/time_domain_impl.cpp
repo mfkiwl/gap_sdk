@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2020  GreenWaves Technologies, SAS
+ * Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
+ *                    University of Bologna
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- * 
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /* 
@@ -380,6 +380,27 @@ void vp::time_engine::run_loop()
             first_client = current->next;
             current->is_enqueued = false;
 
+#if defined(__VP_USE_SYSTEMC) || defined(__VP_USE_SYSTEMV)
+            while(1)
+            {
+#if defined(__VP_USE_SYSTEMV)
+                //vp_assert(current->next_event_time >= (int64_t)dpi_time_ps(), NULL, "SystemV time is after vp time\n");
+                dpi_wait_event_timeout_ps(current->next_event_time - dpi_time_ps());
+                this->time = dpi_time_ps();
+                if (this->time == current->next_event_time)
+                    break;
+#else
+                vp_assert(current->next_event_time >= (int64_t)sc_time_stamp().to_double(), NULL, "SystemC time is after vp time\n");
+                wait(current->next_event_time - (int64_t)sc_time_stamp().to_double(), SC_PS, sync_event);
+
+                int64_t current_sc_time = (int64_t)sc_time_stamp().to_double();
+
+                if (current_sc_time == current->next_event_time)
+                    break;
+#endif
+            }
+#endif
+
             // Update the global engine time with the current event time
             this->time = current->next_event_time;
 
@@ -448,11 +469,17 @@ void vp::time_engine::run_loop()
                         // or wait unil the systemC part enqueues something before
 
 #if defined(__VP_USE_SYSTEMV)
-                        //vp_assert(first_client->next_event_time >= (int64_t)dpi_time_ps(), NULL, "SystemV time is after vp time\n");
-                        dpi_wait_event_timeout_ps(first_client->next_event_time - dpi_time_ps());
+                        int64_t diff = first_client->next_event_time - dpi_time_ps();
+                        // Be careful on xcelium the time is sometimes rounded to the upper picosecond
+                        //vp_assert(diff >= -1, NULL, "SystemV time is after vp time\n");
+                        if (diff > 0)
+                            dpi_wait_event_timeout_ps(first_client->next_event_time - dpi_time_ps());
                         this->time = dpi_time_ps();
-                        if (this->time == first_client->next_event_time)
+                        if (this->time >= first_client->next_event_time)
+                        {
+                            this->time = first_client->next_event_time;
                             break;
+                        }
 #else
                         vp_assert(first_client->next_event_time >= (int64_t)sc_time_stamp().to_double(), NULL, "SystemC time is after vp time\n");
                         wait(first_client->next_event_time - (int64_t)sc_time_stamp().to_double(), SC_PS, sync_event);

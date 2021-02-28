@@ -1,12 +1,10 @@
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wpointer-sign"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #include "Gap.h"
 #include "CNN_BasicKernels.h"
-
-#define VOL volatile
-
-
-#define Min(a, b)	       (((a)<(b))?(a):(b))
-#define Max(a, b)	       (((a)>(b))?(a):(b))
-#define Minu(a, b)	      (( ((unsigned int)a)<((unsigned int)b) )?((unsigned int)a):((unsigned int)b) )
 
 static int CoreCountDynamic = 1;
 static int ActiveCore = gap_ncore();
@@ -552,12 +550,12 @@ static void KerParDoHswish_fp(
 	int UB = 6<<Norm;
 	for (unsigned int i=0; i<((W*H)/2); i++) {
 		int Acc0 = In[2*i], Acc1 = In[2*i+1];
-		Out[2*i]   = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, Norm) * C2, 15);
-		Out[2*i+1] = AT_NORM(AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * Acc1, Norm) * C2, 15);
+		Out[2*i]   = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, Norm) * C2, 15);
+		Out[2*i+1] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * Acc1, Norm) * C2, 15);
 	}
 	if ((W*H)&0x1) {
 		int Acc = In[W*H-1];
-		Out[W*H-1] = AT_NORM(AT_NORM(gap_min(gap_max(Acc + C1, 0), UB) * Acc, Norm) * C2, 15);
+		Out[W*H-1] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc + C1, UB) * Acc, Norm) * C2, 15);
 	}
 }
 
@@ -577,12 +575,12 @@ static void KerParDoHswish_fps(
 	int UB = 6<<Norm;
 	for (unsigned int i=0; i<((W*H)/2); i++) {
 		int Acc0 = In[2*i], Acc1 = In[2*i+1];
-		Out[2*i]   = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, Norm) * C2, 15);
-		Out[2*i+1] = AT_NORM(AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * Acc1, Norm) * C2, 15);
+		Out[2*i]   = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, Norm) * C2, 15);
+		Out[2*i+1] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * Acc1, Norm) * C2, 15);
 	}
 	if ((W*H)&0x1) {
 		int Acc = In[W*H-1];
-		Out[W*H-1] = AT_NORM(AT_NORM(gap_min(gap_max(Acc + C1, 0), UB) * Acc, Norm) * C2, 15);
+		Out[W*H-1] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc + C1, UB) * Acc, Norm) * C2, 15);
 	}
 }
 
@@ -605,12 +603,12 @@ static void KerParDoHsigmoid_fp(
 
 	for (unsigned int i=0; i<((W*H)/2); i++) {
 		int Acc0 = In[2*i], Acc1 = In[2*i+1];
-		Out[2*i]   = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
-		Out[2*i+1] = AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * C2, 15);
+		Out[2*i]   = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
+		Out[2*i+1] = AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * C2, 15);
 	}
 	if ((W*H)&0x1) {
 		int Acc = In[W*H-1];
-		Out[W*H-1] = AT_NORM(gap_min(gap_max(Acc + C1, 0), UB) * C2, 15);
+		Out[W*H-1] = AT_NORM(AT_CLIP_POS(Acc + C1, UB) * C2, 15);
 	}
 }
 
@@ -631,12 +629,12 @@ static void KerParDoHsigmoid_fps(
 	int UB = 6<<Norm;
 	for (unsigned int i=0; i<((W*H)/2); i++) {
 		int Acc0 = In[2*i], Acc1 = In[2*i+1];
-		Out[2*i]   = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
-		Out[2*i+1] = AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * C2, 15);
+		Out[2*i]   = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
+		Out[2*i+1] = AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * C2, 15);
 	}
 	if ((W*H)&0x1) {
 		int Acc = In[W*H-1];
-		Out[W*H-1] = AT_NORM(gap_min(gap_max(Acc + C1, 0), UB) * C2, 15);
+		Out[W*H-1] = AT_NORM(AT_CLIP_POS(Acc + C1, UB) * C2, 15);
 	}
 }
 
@@ -1155,14 +1153,13 @@ void KerDPLinearLayerReduct_fp(KerDPLinearLayerReduct_fp_T *Arg)
 			/* Out = ReLU6(In + 3) / 6 */
 			C1 = 3<<NormOut;
 			C2 = (1<<15)/6; // 1/6 in Q15
-			Acc = AT_NORM(gap_min(gap_max(AT_NORM(Acc, Norm) + C1, 0), 6<<NormOut) * C2, 15);
+			Acc = AT_NORM(AT_CLIP_POS(AT_NORM(Acc, Norm) + C1, 6<<NormOut) * C2, 15);
 			break;
 		case KACT_HSWISH:
 			/* Out = (In * ReLU6(In + 3)) / 6 */
 			C1 = 3<<NormOut;
 			C2 = (1<<15)/6; // 1/6 in Q15
-			Acc = AT_NORM(Acc, Norm);
-			Acc = AT_NORM(AT_NORM(gap_min(gap_max(Acc + C1, 0), 6<<NormOut) * Acc, NormOut) * C2, 15);
+			Acc = AT_NORM(AT_NORM(AT_CLIP_POS(AT_NORM(Acc, Norm) + C1, 6<<NormOut) * Acc, NormOut) * C2, 15);
 			break;
 		case KACT_LEAKY:
 			/* Out = (In<0) ? In*Const : In */
@@ -1227,14 +1224,13 @@ void KerDPLinearLayerReduct_fps(KerDPLinearLayerReduct_fps_T *Arg)
 			/* Out = ReLU6(In + 3) / 6 */
 			C1 = 3<<NormOut;
 			C2 = (1<<15)/6; // 1/6 in Q15
-			Acc = AT_NORM(gap_min(gap_max(AT_NORM(Acc, Norm) + C1, 0), 6<<NormOut) * C2, 15);
+			Acc = AT_NORM(AT_CLIP_POS(AT_NORM(Acc, Norm) + C1, 6<<NormOut) * C2, 15);
 			break;
 		case KACT_HSWISH:	/* Here we need point position of Acc */
 			/* Out = (In * ReLU6(In + 3)) / 6 */
 			C1 = 3<<NormOut;
 			C2 = (1<<15)/6; // 1/6 in Q15
-			Acc = AT_NORM(Acc, Norm);
-			Acc = AT_NORM(AT_NORM(gap_min(gap_max(Acc + C1, 0), 6<<NormOut) * Acc, NormOut) * C2, 15);
+			Acc = AT_NORM(AT_NORM(AT_CLIP_POS(AT_NORM(Acc, Norm) + C1, 6<<NormOut) * Acc, NormOut) * C2, 15);
 			break;
 		case KACT_LEAKY:
 			/* Out = (In<0) ? In*Const : In */
@@ -1340,7 +1336,7 @@ void KerParLinearLayerHswish_fp(KerLinearLayerReLU_fp_T *Arg)
 		if (InSize&0x1) Acc += In[InSize-1]*Filter[i*InSize+InSize-1];
 		/* Out = (In * ReLU6(In + 3)) / 6 */
 		Acc = AT_NORM(Acc, Norm);
-		Out[i] = AT_NORM(AT_NORM(gap_min(gap_max(Acc + C1, 0), UB) * Acc, NormOut) * C2, 15);
+		Out[i] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc + C1, UB) * Acc, NormOut) * C2, 15);
 	}
 	gap_waitbarrier(0);
 }
@@ -1471,7 +1467,7 @@ void KerParLinearLayerHswish_fps(KerLinearLayerReLU_fps_T *Arg)
 		if (InSize&0x4) Acc = gap_sumdotp4(VectIn[InSize/4-1], Filt[InSize/4-1], Acc);
 		for (j=4*(InSize/4); j<InSize; j++) Acc += In[j]*Filter[i*TotalInSize+j];
 		Acc = AT_NORM(Acc, Norm);
-		Out[i] = AT_NORM(AT_NORM(gap_min(gap_max(Acc + C1, 0), UB) * Acc, NormOut) * C2, 15);
+		Out[i] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc + C1, UB) * Acc, NormOut) * C2, 15);
 	}
 	gap_waitbarrier(0);
 }
@@ -1516,7 +1512,7 @@ void KerParLinearLayerHsigmoid_fps(KerLinearLayerReLU_fps_T *Arg)
 		if (InSize&0x4) Acc = gap_sumdotp4(VectIn[InSize/4-1], Filt[InSize/4-1], Acc);
 		for (j=4*(InSize/4); j<InSize; j++) Acc += In[j]*Filter[i*TotalInSize+j];
 	   	/* Out = Relu6(In + 3) / 6 */
-		Out[i] = AT_NORM(gap_min(gap_max(AT_NORM(Acc, Norm) + C1, 0), UB) * C2, 15);
+		Out[i] = AT_NORM(AT_CLIP_POS(AT_NORM(Acc, Norm) + C1, UB) * C2, 15);
 	}
 	gap_waitbarrier(0);
 }
@@ -1802,13 +1798,13 @@ void KerDP_hswish_fp(KerDP_fp_T *Arg)
 
 	for (i=0; i<(Size/2); i++) {
 		int Acc0 = AT_NORM(I[2*i], Norm), Acc1 = AT_NORM(I[2*i+1], Norm);
-		Acc0 = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
-		Acc1 = AT_NORM(AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * Acc1, NormOut) * C2, 15);
+		Acc0 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
+		Acc1 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * Acc1, NormOut) * C2, 15);
 		O[i] = gap_pack2(Acc0, Acc1);
 	}
 	if (Size&0x1) {
 		int Acc0 = AT_NORM(In[Last-1], Norm);
-		Out[Last-1] = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
+		Out[Last-1] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
 	}
 	gap_waitbarrier(0);
 }
@@ -1842,13 +1838,13 @@ void KerDP_hsigmoid_fp(KerDP_fp_T *Arg)
 
 	for (i=0; i<(Size/2); i++) {
 		int Acc0 = AT_NORM(I[2*i], Norm), Acc1 = AT_NORM(I[2*i+1], Norm);
-		Acc0 = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
-		Acc1 = AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * C2, 15);
+		Acc0 = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
+		Acc1 = AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * C2, 15);
 		O[i] = gap_pack2(Acc0, Acc1);
 	}
 	if (Size&0x1) {
 		int Acc0 = AT_NORM(In[Last-1], Norm);
-		Out[Last-1] = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
+		Out[Last-1] = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
 	}
 	gap_waitbarrier(0);
 }
@@ -1881,6 +1877,50 @@ void KerDP_leakyrelu_fp(KerDP_fp_T *Arg)
 		Os[i] = Acc0;
 	}
 	gap_waitbarrier(0);
+}
+
+#define B_CLR(x, bits)  ((x)&(~((1<<(bits))-1)))
+static void KerReductIO_Compact_fps(char *__restrict__ To, char *__restrict__ From, int Size, int TotalSize)
+
+{
+        unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Size), First = Chunk*CoreId, Last = Min(First+Chunk, Size);
+        unsigned int Iter = Max(0, Last-First);
+
+        for (int i=Size; i<TotalSize; i+=Size) {
+                From += Size*4; To += Size;
+
+                int *pFrom = (int *) (From+First), *pTo = (int *) (To+First);
+                for (int j=0; j<Iter/8; j++) {
+                        int V0 = pFrom[2*j], V1 = pFrom[2*j+1];
+                        pTo[2*j] = V0; pTo[2*j+1] = V1;
+                }
+                if (Iter & 0x4) *((int *) (To + First + B_CLR(Iter, 3))) = *((int *) (From + First + B_CLR(Iter, 3)));
+                if (Iter & 0x2) *((short int *) (To + First + B_CLR(Iter, 2))) = *((short int *) (From + First + B_CLR(Iter, 2)));
+                if (Iter & 0x1) *((signed char *) (To + First + Iter - 1)) = *((signed char *) (From + First + Iter - 1));
+                gap_waitbarrier(0);
+        }
+}
+
+static void KerReductIO_Compact_fp(short int *__restrict__ To, short int *__restrict__ From, int Size, int TotalSize)
+
+{
+        unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Size), First = Chunk*CoreId, Last = Min(First+Chunk, Size);
+        unsigned int Iter = Max(0, Last-First);
+
+        for (int i=Size; i<TotalSize; i+=Size) {
+                From += Size*2; To += Size;
+
+                int *pFrom = (int *) (From+First), *pTo = (int *) (To+First);
+                for (int j=0; j<Iter/4; j++) {
+                        int V0 = pFrom[2*j], V1 = pFrom[2*j+1];
+                        pTo[2*j] = V0; pTo[2*j+1] = V1;
+                }
+				//This first should not happen with shorts
+                //if (Iter & 0x4) *((int *) (To + First + B_CLR(Iter, 3))) = *((int *) (From + First + B_CLR(Iter, 3)));
+                if (Iter & 0x2) *((short int *) (To + First + B_CLR(Iter, 2))) = *((short int *) (From + First + B_CLR(Iter, 2)));
+                if (Iter & 0x1) *((signed char *) (To + First + Iter - 1)) = *((signed char *) (From + First + Iter - 1));
+                gap_waitbarrier(0);
+        }
 }
 
 void KerDP_IO_fp(KerDP_fp_T *Arg)
@@ -1918,6 +1958,9 @@ void KerDP_IO_fp(KerDP_fp_T *Arg)
 	if (Size&0x1) ((short int *)I)[Size-1] = Min(Max(AT_NORM(I[Size-1], Norm), LB), UB);
 	gap_waitbarrier(0);
 	/* Now this is the reduction phase */
+
+	KerReductIO_Compact_fp((short int *__restrict__)In, (short int *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -1934,6 +1977,7 @@ void KerDP_IO_fp(KerDP_fp_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDP_IO_hsigmoid_fp(KerDP_fp_T *Arg)
@@ -1969,16 +2013,19 @@ void KerDP_IO_hsigmoid_fp(KerDP_fp_T *Arg)
 
 	for (i=0; i<(Size/2); i++) {
 		int Acc0 = AT_NORM(I[2*i], Norm), Acc1 = AT_NORM(I[2*i+1], Norm);
-		Acc0 = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
-		Acc1 = AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * C2, 15);
+		Acc0 = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
+		Acc1 = AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * C2, 15);
 		O[i] = gap_pack2(Acc0, Acc1);
 	}
 	if (Size&0x1) {
 		int Acc0 = AT_NORM(In[Last-1], Norm);
-		Out[Last-1] = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
+		Out[Last-1] = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
 	}
 	gap_waitbarrier(0);
 	/* Now this is the reduction phase */
+
+	KerReductIO_Compact_fp((short int *__restrict__)In, (short int *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -1995,6 +2042,7 @@ void KerDP_IO_hsigmoid_fp(KerDP_fp_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDP_IO_hswish_fp(KerDP_fp_T *Arg)
@@ -2029,16 +2077,19 @@ void KerDP_IO_hswish_fp(KerDP_fp_T *Arg)
 
 	for (i=0; i<(Size/2); i++) {
 		int Acc0 = AT_NORM(I[2*i], Norm), Acc1 = AT_NORM(I[2*i+1], Norm);
-		Acc0 = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
-		Acc1 = AT_NORM(AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * Acc1, NormOut) * C2, 15);
+		Acc0 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
+		Acc1 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * Acc1, NormOut) * C2, 15);
 		O[i] = gap_pack2(Acc0, Acc1);
 	}
 	if (Size&0x1) {
 		int Acc0 = AT_NORM(In[Last-1], Norm);
-		Out[Last-1] = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
+		Out[Last-1] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
 	}
 	gap_waitbarrier(0);
 	/* Now this is the reduction phase */
+
+	KerReductIO_Compact_fp((short int *__restrict__)In, (short int *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2055,6 +2106,7 @@ void KerDP_IO_hswish_fp(KerDP_fp_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDP_IO_leakyrelu_fp(KerDP_fp_T *Arg)
@@ -2092,6 +2144,9 @@ void KerDP_IO_leakyrelu_fp(KerDP_fp_T *Arg)
 	}
 	gap_waitbarrier(0);
 	/* Now this is the reduction phase */
+
+	KerReductIO_Compact_fp((short int *__restrict__)In, (short int *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2108,6 +2163,7 @@ void KerDP_IO_leakyrelu_fp(KerDP_fp_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDPMulBiasScalar_IO_fp(KerDP_fp_T *Arg)
@@ -2148,6 +2204,9 @@ void KerDPMulBiasScalar_IO_fp(KerDP_fp_T *Arg)
 	if (Size&0x1) ((short int *)I)[Size-1] = Min(Max(AT_NORM(AT_NORM(I[Size-1], Norm)*M, NormBias), LB), UB);
 	gap_waitbarrier(0);
 	/* Now this is the reduction phase */
+
+	KerReductIO_Compact_fp((short int *__restrict__)In, (short int *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2164,6 +2223,7 @@ void KerDPMulBiasScalar_IO_fp(KerDP_fp_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDPMulBias_IO_fp(KerDP_fp_T *Arg)
@@ -2206,6 +2266,9 @@ void KerDPMulBias_IO_fp(KerDP_fp_T *Arg)
 	}
 	gap_waitbarrier(0);
 	/* Now this is the reduction phase */
+
+	KerReductIO_Compact_fps((signed char *__restrict__)In, (signed char *__restrict__)In, S*ChunkCell, S*Feat);
+#if 0
 	ChunkCell *= S;
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
@@ -2223,6 +2286,7 @@ void KerDPMulBias_IO_fp(KerDP_fp_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDP_fps(KerDP_fps_T *Arg)
@@ -2286,15 +2350,15 @@ void KerDP_hswish_fps(KerDP_fps_T *Arg)
 
 	for (i=0; i<(Size/4); i++) {
 		int Acc0 = AT_NORM(I[4*i], Norm), Acc1 = AT_NORM(I[4*i+1], Norm), Acc2 = AT_NORM(I[4*i+2], Norm), Acc3 = AT_NORM(I[4*i+3], Norm);
-		Acc0 = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
-		Acc1 = AT_NORM(AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * Acc1, NormOut) * C2, 15);
-		Acc2 = AT_NORM(AT_NORM(gap_min(gap_max(Acc2 + C1, 0), UB) * Acc2, NormOut) * C2, 15);
-		Acc3 = AT_NORM(AT_NORM(gap_min(gap_max(Acc3 + C1, 0), UB) * Acc3, NormOut) * C2, 15);
+		Acc0 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
+		Acc1 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * Acc1, NormOut) * C2, 15);
+		Acc2 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc2 + C1, UB) * Acc2, NormOut) * C2, 15);
+		Acc3 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc3 + C1, UB) * Acc3, NormOut) * C2, 15);
 		O[i] = gap_pack4(Acc0, Acc1, Acc2, Acc3);
 	}
 	for (i=((Size/4)*4); i<Size; i++) {
 		int Acc0 = AT_NORM(I[i], Norm);
-		Os[i] = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
+		Os[i] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
 	}
 	gap_waitbarrier(0);
 }
@@ -2328,15 +2392,15 @@ void KerDP_hsigmoid_fps(KerDP_fps_T *Arg)
 
 	for (i=0; i<(Size/4); i++) {
 		int Acc0 = AT_NORM(I[4*i], Norm), Acc1 = AT_NORM(I[4*i+1], Norm), Acc2 = AT_NORM(I[4*i+2], Norm), Acc3 = AT_NORM(I[4*i+3], Norm);
-		Acc0 = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
-		Acc1 = AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * C2, 15);
-		Acc2 = AT_NORM(gap_min(gap_max(Acc2 + C1, 0), UB) * C2, 15);
-		Acc3 = AT_NORM(gap_min(gap_max(Acc3 + C1, 0), UB) * C2, 15);
+		Acc0 = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
+		Acc1 = AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * C2, 15);
+		Acc2 = AT_NORM(AT_CLIP_POS(Acc2 + C1, UB) * C2, 15);
+		Acc3 = AT_NORM(AT_CLIP_POS(Acc3 + C1, UB) * C2, 15);
 		O[i] = gap_pack4(Acc0, Acc1, Acc2, Acc3);
 	}
 	for (i=((Size/4)*4); i<Size; i++) {
 		int Acc0 = AT_NORM(I[i], Norm);
-		Os[i] = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
+		Os[i] = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
 	}
 	gap_waitbarrier(0);
 }
@@ -2481,6 +2545,8 @@ void KerDP_IO_fps(KerDP_fps_T *Arg)
 	for (i=((Size/4)*4); i<Size; i++) Os[i] = Min(Max(AT_NORM(I[i], Norm), LB), UB);
 	gap_waitbarrier(0);
 
+	KerReductIO_Compact_fps((signed char *__restrict__)In, (signed char *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2497,6 +2563,7 @@ void KerDP_IO_fps(KerDP_fps_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDP_IO_hswish_fps(KerDP_fps_T *Arg)
@@ -2531,18 +2598,20 @@ void KerDP_IO_hswish_fps(KerDP_fps_T *Arg)
 
 	for (i=0; i<(Size/4); i++) {
 		int Acc0 = AT_NORM(I[4*i], Norm), Acc1 = AT_NORM(I[4*i+1], Norm), Acc2 = AT_NORM(I[4*i+2], Norm), Acc3 = AT_NORM(I[4*i+3], Norm);
-		Acc0 = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
-		Acc1 = AT_NORM(AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * Acc1, NormOut) * C2, 15);
-		Acc2 = AT_NORM(AT_NORM(gap_min(gap_max(Acc2 + C1, 0), UB) * Acc2, NormOut) * C2, 15);
-		Acc3 = AT_NORM(AT_NORM(gap_min(gap_max(Acc3 + C1, 0), UB) * Acc3, NormOut) * C2, 15);
+		Acc0 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
+		Acc1 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * Acc1, NormOut) * C2, 15);
+		Acc2 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc2 + C1, UB) * Acc2, NormOut) * C2, 15);
+		Acc3 = AT_NORM(AT_NORM(AT_CLIP_POS(Acc3 + C1, UB) * Acc3, NormOut) * C2, 15);
 		O[i] = gap_pack4(Acc0, Acc1, Acc2, Acc3);
 	}
 	for (i=((Size/4)*4); i<Size; i++) {
 		int Acc0 = AT_NORM(I[i], Norm);
-		Os[i] = AT_NORM(AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * Acc0, NormOut) * C2, 15);
+		Os[i] = AT_NORM(AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * Acc0, NormOut) * C2, 15);
 	}
 	gap_waitbarrier(0);
 
+	KerReductIO_Compact_fps((signed char *__restrict__)In, (signed char *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2559,6 +2628,7 @@ void KerDP_IO_hswish_fps(KerDP_fps_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDP_IO_hsigmoid_fps(KerDP_fps_T *Arg)
@@ -2595,18 +2665,20 @@ void KerDP_IO_hsigmoid_fps(KerDP_fps_T *Arg)
 
 	for (i=0; i<(Size/4); i++) {
 		int Acc0 = AT_NORM(I[4*i], Norm), Acc1 = AT_NORM(I[4*i+1], Norm), Acc2 = AT_NORM(I[4*i+2], Norm), Acc3 = AT_NORM(I[4*i+3], Norm);
-		Acc0 = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
-		Acc1 = AT_NORM(gap_min(gap_max(Acc1 + C1, 0), UB) * C2, 15);
-		Acc2 = AT_NORM(gap_min(gap_max(Acc2 + C1, 0), UB) * C2, 15);
-		Acc3 = AT_NORM(gap_min(gap_max(Acc3 + C1, 0), UB) * C2, 15);
+		Acc0 = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
+		Acc1 = AT_NORM(AT_CLIP_POS(Acc1 + C1, UB) * C2, 15);
+		Acc2 = AT_NORM(AT_CLIP_POS(Acc2 + C1, UB) * C2, 15);
+		Acc3 = AT_NORM(AT_CLIP_POS(Acc3 + C1, UB) * C2, 15);
 		O[i] = gap_pack4(Acc0, Acc1, Acc2, Acc3);
 	}
 	for (i=((Size/4)*4); i<Size; i++) {
 		int Acc0 = AT_NORM(I[i], Norm);
-		Os[i] = AT_NORM(gap_min(gap_max(Acc0 + C1, 0), UB) * C2, 15);
+		Os[i] = AT_NORM(AT_CLIP_POS(Acc0 + C1, UB) * C2, 15);
 	}
 	gap_waitbarrier(0);
 
+	KerReductIO_Compact_fps((signed char *__restrict__)In, (signed char *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2623,6 +2695,7 @@ void KerDP_IO_hsigmoid_fps(KerDP_fps_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDP_IO_leakyrelu_fps(KerDP_fps_T *Arg)
@@ -2660,6 +2733,8 @@ void KerDP_IO_leakyrelu_fps(KerDP_fps_T *Arg)
 	}
 	gap_waitbarrier(0);
 
+	KerReductIO_Compact_fps((signed char *__restrict__)In, (signed char *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2676,6 +2751,7 @@ void KerDP_IO_leakyrelu_fps(KerDP_fps_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDPMulBiasScalar_IO_fps(KerDP_fps_T *Arg)
@@ -2717,6 +2793,8 @@ void KerDPMulBiasScalar_IO_fps(KerDP_fps_T *Arg)
 
 	gap_waitbarrier(0);
 
+	KerReductIO_Compact_fps((signed char *__restrict__)In, (signed char *__restrict__)In, ChunkCell, S);
+#if 0
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
 		if (CoreId<U) {
@@ -2733,6 +2811,7 @@ void KerDPMulBiasScalar_IO_fps(KerDP_fps_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
 
 void KerDPMulBias_IO_fps(KerDP_fps_T *Arg)
@@ -2777,6 +2856,8 @@ void KerDPMulBias_IO_fps(KerDP_fps_T *Arg)
 
 	gap_waitbarrier(0);
 
+	KerReductIO_Compact_fps((signed char *__restrict__)In, (signed char *__restrict__)In, Size*ChunkCell, Size*S);
+#if 0
 	ChunkCell *= Size;
 	U = gap_ncore()/2; Log2Core = gap_fl1(gap_ncore()); A = 2; B = 1;
 	for (k=0; k<Log2Core; k++) {
@@ -2794,4 +2875,6 @@ void KerDPMulBias_IO_fps(KerDP_fps_T *Arg)
 		U = U/2; A = A*2; B = B*2;
 		gap_waitbarrier(0);
 	}
+#endif
 }
+#pragma GCC diagnostic pop

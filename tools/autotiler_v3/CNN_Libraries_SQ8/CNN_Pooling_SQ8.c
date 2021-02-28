@@ -1,3 +1,7 @@
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wpointer-sign"
+#pragma GCC diagnostic ignored "-Wsign-compare"
 #include <stdio.h>
 #include "Gap.h"
 #include "CNN_BasicKernels_SQ8.h"
@@ -34,16 +38,6 @@ static int LastDefinedOutput(unsigned int DimIn, unsigned int F, unsigned int Pa
 	return ((DimIn - ((F-1)/2 - PadL + (F/2)) + Stride-1)/Stride);
 }
 
-static inline int __attribute__ ((always_inline)) MinCond(int a, int b)
-
-{
-#ifdef DIM_ALWAYS_GREATER_THAN_FILTER
-	return a;
-#else
-	return Max(0, Min(a, b));
-#endif
-}
-
 /*
  * Standalone activation, assuming contiguous tile (horizontal)
 */
@@ -60,9 +54,9 @@ static void Ker_Activation_SQ8(
 		switch (Activation) {
 			case ACT_NONE:     Acc0 = AT_SCALE(Acc0, ActScale, ActScaleN); Acc1 = AT_SCALE(Acc1, ActScale, ActScaleN); break;
 			case ACT_RELU:     Acc0 = AT_SCALE(Max(0, Acc0), ActScale, ActScaleN); Acc1 = AT_SCALE(Max(0, Acc1), ActScale, ActScaleN); break;
-			case ACT_RELUN:    Acc0 = AT_SCALE(Min(A0, Max(0, Acc0)), ActScale, ActScaleN); Acc1 = AT_SCALE(Min(A0, Max(0, Acc1)), ActScale, ActScaleN); break;
-			case ACT_HSIGMOID: Acc0 = AT_SCALE(Max(0, Min(A0, Acc0 + B0)) * C0, ActScale, ActScaleN); Acc1 = AT_SCALE(Max(0, Min(A0, Acc1 + B0)) * C0, ActScale, ActScaleN); break;
-			case ACT_HSWISH:   Acc0 = AT_SCALE(Max(0, Min(A0, Acc0 + B0)) * C0 * Acc0, ActScale, ActScaleN); Acc1 = AT_SCALE(Max(0, Min(A0, Acc1 + B0)) * C0 * Acc1, ActScale, ActScaleN); break;
+			case ACT_RELUN:    Acc0 = AT_SCALE(AT_CLIP_POS(Acc0, A0), ActScale, ActScaleN); Acc1 = AT_SCALE(AT_CLIP_POS(Acc1, A0), ActScale, ActScaleN); break;
+			case ACT_HSIGMOID: Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0, ActScale, ActScaleN); Acc1 = AT_SCALE(AT_CLIP_POS(Acc1 + B0, A0) * C0, ActScale, ActScaleN); break;
+			case ACT_HSWISH:   Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0 * Acc0, ActScale, ActScaleN); Acc1 = AT_SCALE(AT_CLIP_POS(Acc1 + B0, A0) * C0 * Acc1, ActScale, ActScaleN); break;
 			case ACT_LEAKYRELU:
 				{
 					int Neg0 = gap_bitextractu(Acc0, 1, 31), Pos0 = !Neg0;
@@ -84,9 +78,9 @@ static void Ker_Activation_SQ8(
 		switch (Activation) {
 			case ACT_NONE:     Acc0 = AT_SCALE(Acc0, ActScale, ActScaleN); break;
 			case ACT_RELU:     Acc0 = AT_SCALE(Max(0, Acc0), ActScale, ActScaleN); break;
-			case ACT_RELUN:    Acc0 = AT_SCALE(Min(A0, Max(0, Acc0)), ActScale, ActScaleN); break;
-			case ACT_HSIGMOID: Acc0 = AT_SCALE(Max(0, Min(A0, Acc0 + B0)) * C0, ActScale, ActScaleN); break;
-			case ACT_HSWISH:   Acc0 = AT_SCALE(Max(0, Min(A0, Acc0 + B0)) * C0 * Acc0, ActScale, ActScaleN); break;
+			case ACT_RELUN:    Acc0 = AT_SCALE(AT_CLIP_POS(Acc0, A0), ActScale, ActScaleN); break;
+			case ACT_HSIGMOID: Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0, ActScale, ActScaleN); break;
+			case ACT_HSWISH:   Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0 * Acc0, ActScale, ActScaleN); break;
 			case ACT_LEAKYRELU:
 				{
 					int Neg0 = gap_bitextractu(Acc0, 1, 31), Pos0 = !Neg0;
@@ -115,7 +109,7 @@ static void Ker_ActivationScale1_SQ8(
 		int Acc0 = InOut[2*i], Acc1 = InOut[2*i+1];
 		switch (Activation) {
 			case ACT_RELU: Acc0 = Max(0, Acc0); Acc1 = Max(0, Acc1); break;
-			case ACT_RELUN: Acc0 = Min(A0, Max(0, Acc0)); Acc1 = Min(A0, Max(0, Acc1)); break;
+			case ACT_RELUN: Acc0 = AT_CLIP_POS(Acc0, A0); Acc1 = AT_CLIP_POS(Acc1, A0); break;
 		}
 		InOut[2*i] = Acc0; InOut[2*i+1] = Acc1;
 	}
@@ -124,7 +118,7 @@ static void Ker_ActivationScale1_SQ8(
 		int Acc0 = InOut[i];
 		switch (Activation) {
 			case ACT_RELU: Acc0 = Max(0, Acc0); break;
-			case ACT_RELUN: Acc0 = Min(A0, Max(0, Acc0)); break;
+			case ACT_RELUN: Acc0 = AT_CLIP_POS(Acc0, A0); break;
 		}
 		InOut[i] = Acc0;
 	}
@@ -147,9 +141,9 @@ static void Ker_Activation_Ver_SQ8(
 			switch (Activation) {
 				case ACT_NONE:     Acc0 = AT_SCALE(Acc0, ActScale, ActScaleN); break;
 				case ACT_RELU:     Acc0 = AT_SCALE(Max(0, Acc0), ActScale, ActScaleN); break;
-				case ACT_RELUN:    Acc0 = AT_SCALE(Min(A0, Max(0, Acc0)), ActScale, ActScaleN); break;
-				case ACT_HSIGMOID: Acc0 = AT_SCALE(Max(0, Min(A0, Acc0 + B0)) * C0, ActScale, ActScaleN); break;
-				case ACT_HSWISH:   Acc0 = AT_SCALE(Max(0, Min(A0, Acc0 + B0)) * C0 * Acc0, ActScale, ActScaleN); break;
+				case ACT_RELUN:    Acc0 = AT_SCALE(AT_CLIP_POS(Acc0, A0), ActScale, ActScaleN); break;
+				case ACT_HSIGMOID: Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0, ActScale, ActScaleN); break;
+				case ACT_HSWISH:   Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0 * Acc0, ActScale, ActScaleN); break;
 				case ACT_LEAKYRELU:
 					{
 						int Neg0 = gap_bitextractu(Acc0, 1, 31), Pos0 = !Neg0;
@@ -180,7 +174,7 @@ static void Ker_ActivationScale1_Ver_SQ8(
 			int Acc0 = InOut[l*W+c];
 			switch (Activation) {
 				case ACT_RELU: Acc0 = Max(0, Acc0); break;
-				case ACT_RELUN: Acc0 = Min(A0, Max(0, Acc0)); break;
+				case ACT_RELUN: Acc0 = AT_CLIP_POS(Acc0, A0); break;
 			}
 			InOut[l*W+c] = Acc0;
 		}
@@ -342,7 +336,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 			/* Top stripe: 0 .. Min(Ho_F, Ho), Along W all points are defined since we are in [Wo_F..Wo_L[  */
 			for (unsigned int h=0; h<Ho_F; h++) {
 				int Acc = 0;
-				int Fh_min = ht, Fh_max = MinCond(Fh, hb); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
 				Out[Wo*h+w] = Acc;
@@ -354,7 +348,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 			int ht = 0, hb = H - (Hi_L+Stride) + Fh2;
 			/* Bottom stripe.  Exists only if Ho_L>Ho_F, then in this case Fh_min is = 0 by construction */
 			for (unsigned int h=Ho_L; h<Ho; h++) {
-				int Fh_min = ht, Fh_max = MinCond(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				int Acc = 0;
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
@@ -367,7 +361,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 			int wl = PadLOrg, wr = W - Wi_F + Fw2;
 			for (unsigned int w=0; w<Wo_F; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(Fw, wr); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
 				Out[Wo*h+w] = Acc;
@@ -379,7 +373,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 			int wl = 0, wr = W - (Wi_L+Stride) + Fw2;
 			for (unsigned int w=Wo_L; w<Wo; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
 				Out[Wo*h+w] = Acc;
@@ -394,7 +388,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
 					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only. ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
 					Out[Wo*h+w] = Acc;
@@ -410,7 +404,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
 					// ht Can't be > F by definition of Ho_L so we can remove and use ht only. ht Can't be > F by definition of Ho_L so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
 					Out[Wo*h+w] = Acc;
@@ -428,7 +422,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
 					Out[Wo*h+w] = Acc;
@@ -444,7 +438,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)]);
 					Out[Wo*h+w] = Acc;
@@ -491,7 +485,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 			/* Top stripe: 0 .. Min(Ho_F, Ho), Along W all points are defined since we are in [Wo_F..Wo_L[  */
 			for (unsigned int h=0; h<Ho_F; h++) {
 				int Acc = 0;
-				int Fh_min = ht, Fh_max = MinCond(Fh, hb); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
 				Out[Wo*h+w] = Acc;
@@ -503,7 +497,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 			int ht = 0, hb = H - (Hi_L+StrideY) + Fh2;
 			/* Bottom stripe.  Exists only if Ho_L>Ho_F, then in this case Fh_min is = 0 by construction */
 			for (unsigned int h=Ho_L; h<Ho; h++) {
-				int Fh_min = ht, Fh_max = MinCond(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				int Acc = 0;
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
@@ -516,7 +510,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 			int wl = PadLOrg, wr = W - Wi_F + Fw2;
 			for (unsigned int w=0; w<Wo_F; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(Fw, wr); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
 				Out[Wo*h+w] = Acc;
@@ -528,7 +522,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 			int wl = 0, wr = W - (Wi_L+StrideX) + Fw2;
 			for (unsigned int w=Wo_L; w<Wo; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
 				Out[Wo*h+w] = Acc;
@@ -543,7 +537,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
 					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only. ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
 					Out[Wo*h+w] =Acc;
@@ -559,7 +553,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
 					// ht Can't be > F by definition of Ho_L so we can remove and use ht only. ht Can't be > F by definition of Ho_L so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
 					Out[Wo*h+w] = Acc;
@@ -577,7 +571,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
 					Out[Wo*h+w] = Acc;
@@ -593,7 +587,7 @@ static void __attribute__ ((noinline)) KerMaxPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc = Max(Acc, In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)]);
 					Out[Wo*h+w] = Acc;
@@ -641,7 +635,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 			/* Top stripe: 0 .. Min(Ho_F, Ho), Along W all points are defined since we are in [Wo_F..Wo_L[  */
 			for (unsigned int h=0; h<Ho_F; h++) {
 				int Acc = 0;
-				int Fh_min = ht, Fh_max = MinCond(Fh, hb); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
 				Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -653,7 +647,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 			int ht = 0, hb = H - (Hi_L+Stride) + Fh2;
 			/* Bottom stripe.  Exists only if Ho_L>Ho_F, then in this case Fh_min is = 0 by construction */
 			for (unsigned int h=Ho_L; h<Ho; h++) {
-				int Fh_min = ht, Fh_max = MinCond(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				int Acc = 0;
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
@@ -666,7 +660,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 			int wl = PadLOrg, wr = W - Wi_F + Fw2;
 			for (unsigned int w=0; w<Wo_F; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(Fw, wr); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
 				Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -678,7 +672,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 			int wl = 0, wr = W - (Wi_L+Stride) + Fw2;
 			for (unsigned int w=Wo_L; w<Wo; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
 				Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -693,7 +687,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
 					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only. ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -709,7 +703,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
 					// ht Can't be > F by definition of Ho_L so we can remove and use ht only. ht Can't be > F by definition of Ho_L so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -727,7 +721,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -743,7 +737,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxNStrideS_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = Min(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = Min(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*Stride-PadTOrg+i)*W + (w*Stride-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -792,7 +786,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 			/* Top stripe: 0 .. Min(Ho_F, Ho), Along W all points are defined since we are in [Wo_F..Wo_L[  */
 			for (unsigned int h=0; h<Ho_F; h++) {
 				int Acc = 0;
-				int Fh_min = ht, Fh_max = MinCond(Fh, hb); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
 				Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -804,7 +798,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 			int ht = 0, hb = H - (Hi_L+StrideY) + Fh2;
 			/* Bottom stripe.  Exists only if Ho_L>Ho_F, then in this case Fh_min is = 0 by construction */
 			for (unsigned int h=Ho_L; h<Ho; h++) {
-				int Fh_min = ht, Fh_max = MinCond(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				int Acc = 0;
 				for (unsigned int i=Fh_min; i<Fh_max; i++) 
 					for (unsigned int j=0; j<Fw; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
@@ -817,7 +811,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 			int wl = PadLOrg, wr = W - Wi_F + Fw2;
 			for (unsigned int w=0; w<Wo_F; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(Fw, wr); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // wh Can't be < 0 by definition of Wo_F so we can remove and use wl only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
 				Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -829,7 +823,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 			int wl = 0, wr = W - (Wi_L+StrideX) + Fw2;
 			for (unsigned int w=Wo_L; w<Wo; w++) {
 				int Acc = 0;
-				int Wh_min = wl, Wh_max = MinCond(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
+				int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw); // ht Can't be > F by definition of Ho_L so we can remove and use ht only
 				for (unsigned int i=0; i<Fh; i++) 
 			       		for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
 				Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -844,7 +838,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
 					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only. ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -860,7 +854,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
 					// ht Can't be > F by definition of Ho_L so we can remove and use ht only. ht Can't be > F by definition of Ho_L so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = MinCond(Fh, hb);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -878,7 +872,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=0; w<Wo_F; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(Fw, wr), Fh_min = ht, Fh_max = MinCond(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = AT_CLIP_POS(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -894,7 +888,7 @@ static void __attribute__ ((noinline)) KerAvgPoolNxMStrideSxSy_Border_SQ8(
 				for (unsigned int w=Wo_L; w<Wo; w++) {
 					int Acc = 0;
  					// wh Can't be < 0 by definition of Wo_F so we can remove and use wl only.  ht Can't be < 0 by definition of Ho_F so we can remove and use ht only
-					int Wh_min = wl, Wh_max = MinCond(wr, Fw), Fh_min = ht, Fh_max = Min(hb, Fh);
+					int Wh_min = wl, Wh_max = AT_CLIP_POS(wr, Fw), Fh_min = ht, Fh_max = Min(hb, Fh);
 					for (unsigned int i=Fh_min; i<Fh_max; i++) 
 						for (unsigned int j=Wh_min; j<Wh_max; j++) Acc += In[(h*StrideY-PadTOrg+i)*W + (w*StrideX-PadLOrg+j)];
 					Out[Wo*h+w] = gap_clip(gap_roundnorm(Acc*PoolFactor, 16), 7);
@@ -1620,7 +1614,7 @@ void KerParGlobalMaxPool_Reduct_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
 	int A0 = Infos[AT_INF_A0];
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, Min(A0, AT_SCALE(In[of], ActScale, ActScaleN)));
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = AT_CLIP_POS(AT_SCALE(In[of], ActScale, ActScaleN), A0);
 	else for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, Min(A0, In[of]));
 	gap_waitbarrier(0);
 }
@@ -1686,7 +1680,7 @@ void KerParGlobalAvgPool_Reduct_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
 	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, Min(A0, AT_SCALE(gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7), ActScale, ActScaleN)));
-	else for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, Min(A0, gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7)));
+	else for (unsigned int of=First; of<Last; of++) Out[of] = AT_CLIP_POS(gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7), A0);
 	gap_waitbarrier(0);
 }
 
@@ -2283,3 +2277,4 @@ void KerPoolNxMStrideSxSy_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 	}
 	gap_waitbarrier(0);
 }
+#pragma GCC diagnostic pop

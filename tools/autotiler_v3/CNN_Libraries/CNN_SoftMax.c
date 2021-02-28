@@ -1,18 +1,11 @@
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wpointer-sign"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #include <stdio.h>
 #include <math.h>
 #include "CNN_BasicKernels.h"
-
-#define Minu(a, b)	      (( ((unsigned int)a)<((unsigned int)b) )?((unsigned int)a):((unsigned int)b) )
-
-#ifdef __pulp__
-#define Abs(a)			__builtin_pulp_abs((a))
-#define Min(a, b)	       __builtin_pulp_minsi((a), (b))
-#define Max(a, b)	       __builtin_pulp_maxsi((a), (b))
-#else
-#define Abs(a)			(((int)(a)<0)?(-(a)):(a))
-#define Min(a, b)	       (((a)<(b))?(a):(b))
-#define Max(a, b)	       (((a)>(b))?(a):(b))
-#endif
 
 static int CoreCountDynamic = 1;
 static int ActiveCore = gap_ncore();
@@ -238,3 +231,4 @@ void KerParSoftMax_fps(KerSoftMax_fps_T *Arg)
 	gap_waitbarrier(0);
 
 }
+#pragma GCC diagnostic pop
