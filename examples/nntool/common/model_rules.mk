@@ -13,18 +13,6 @@ else
   MODEL_TRAIN_FLAGS =
 endif
 
-ifdef MODEL_SQ8
-  CNN_GEN = $(MODEL_GEN_SQ8)
-  CNN_GEN_INCLUDE = $(MODEL_GEN_INCLUDE_SQ8)
-  CNN_LIB = $(MODEL_LIB_SQ8)
-  CNN_LIB_INCLUDE = $(MODEL_LIB_INCLUDE_SQ8)
-else
-  CNN_GEN = $(MODEL_GEN_POW2)
-  CNN_GEN_INCLUDE = $(MODEL_GEN_INCLUDE_POW2)
-  CNN_LIB = $(MODEL_LIB_POW2)
-  CNN_LIB_INCLUDE = $(MODEL_LIB_INCLUDE_POW2)
-endif
-
 USE_DISP=1
 
 ifdef USE_DISP
@@ -49,7 +37,7 @@ endif
 $(MODEL_BUILD):
 	mkdir $(MODEL_BUILD)
 
-$(MODEL_TFLITE): $(TRAINED_TFLITE_MODEL) | $(MODEL_BUILD)
+$(MODEL_PATH): $(TRAINED_MODEL) | $(MODEL_BUILD)
 	cp $< $@
 
 # Creates an NNTOOL state file by running the commands in the script
@@ -60,14 +48,14 @@ $(MODEL_TFLITE): $(TRAINED_TFLITE_MODEL) | $(MODEL_BUILD)
 #	Quantize the graph if not already done with tflite quantization
 #	Save the graph state files
 
-$(MODEL_STATE): $(MODEL_TFLITE) $(IMAGES) $(NNTOOL_SCRIPT) | $(MODEL_BUILD)
+$(MODEL_STATE): $(MODEL_PATH) $(IMAGES) $(NNTOOL_SCRIPT) | $(MODEL_BUILD)
 	echo "GENERATING NNTOOL STATE FILE"
 	$(NNTOOL) -s $(NNTOOL_SCRIPT) $< $(NNTOOL_EXTRA_FLAGS)
 
 nntool_state: $(MODEL_STATE)
 
 # Runs NNTOOL with its state file to generate the autotiler model code
-$(MODEL_BUILD)/$(MODEL_SRC): $(MODEL_STATE) $(MODEL_TFLITE) | $(MODEL_BUILD)
+$(MODEL_BUILD)/$(MODEL_SRC): $(MODEL_STATE) $(MODEL_PATH) | $(MODEL_BUILD)
 	echo "GENERATING AUTOTILER MODEL"
 	$(NNTOOL) -g -M $(MODEL_BUILD) -m $(MODEL_SRC) -T $(TENSORS_DIR) -H $(MODEL_HEADER) $(MODEL_GENFLAGS_EXTRA) $<
 
@@ -88,10 +76,12 @@ $(MODEL_GEN_C): $(MODEL_GEN_EXE)
 # A phony target to simplify including this in the main Makefile
 model: $(MODEL_GEN_C)
 
-clean_model:
+clean_at_model:
 	$(RM) $(MODEL_GEN_EXE)
-	$(RM) -rf $(MODEL_BUILD)
 	$(RM) $(MODEL_BUILD)/*.dat
+
+clean_model:
+	$(RM) -rf $(MODEL_BUILD)
 
 clean_train:
 	$(RM) -rf $(MODEL_TRAIN_BUILD)

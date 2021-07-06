@@ -14,12 +14,15 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-from typing import Union
 from abc import abstractmethod
+from typing import Sequence, Union
+
+from expressions.symbolic.symbol import Symbol
+from generation.at_types.gen_ctrl import CTRL_FEATURES, GenCtrl
+from graph.dim import Dim
 
 from utils.graph import Edge, Node
 from utils.option_list import OptionList
-from generation.at_types.gen_ctrl import GenCtrl, CTRL_FEATURES
 
 LOG = logging.getLogger("nntool." + __name__)
 
@@ -39,8 +42,28 @@ class NodeOptions(OptionList):
 # pylint: disable=too-many-instance-attributes
 
 
+def clone_dims(dims: Sequence[Dim], hints: Sequence[Dim]):
+    cloned_dims = []
+    for dim_idx, dim in enumerate(dims):
+        if dim is None:
+            cloned_dims.append(None)
+            continue
+        assert hasattr(dim, 'clone'), "no clone attribute - probably not a dim"
+        cloned_dim = dim.clone()
+        if hints and len(hints) > dim_idx and hints[dim_idx]:
+            hint = hints[dim_idx]
+            # this is a nasty hack to cope with linear layers that can take in_dims
+            # that are a different length to their hint which will be 'c'
+            if len(hint) == len(cloned_dim):
+                cloned_dim.apply_naming_hints(hints[dim_idx])
+            elif not cloned_dim.is_named:
+                raise ValueError(f'hint length {hint} != dim length {cloned_dim}')
+        cloned_dims.append(cloned_dim)
+    return cloned_dims
+
+
 class Parameters(Node):
-    op_name = "unknown"
+    CLS_OP_NAME = None
 
     def __init__(self, name, *args, in_dims_hint=None, out_dims_hint=None, constant_store=None, **kwargs):
         super().__init__(name, *args, **kwargs)
@@ -52,9 +75,18 @@ class Parameters(Node):
         self._step_idx = -1
         self._constant_store = constant_store
         self._valid_at_options = {"VCD_TRACE_ON": int, "DUMP_TENSORS": int,
-                                  "OUT_HOME_MEM_LOC": str, "OUT_EXEC_MEM_LOC": str}
+                                  "OUT_HOME_MEM_LOC": str, "OUT_EXEC_MEM_LOC": str,
+                                  "NODE_CNAME": str}
         self._at_options = NodeOptions(self._valid_at_options)
         self._meta = {}
+        self._ker_in_order = None
+        self._ker_out_order = None
+
+    def verify(self, G):
+        """ Override to cause this verification test to be run on all instances of this node.
+        Should return a list of problem descriptions or an empty list if everything is OK
+        """
+        return []
 
     def get_parameters(self):
         return {}
@@ -64,6 +96,20 @@ class Parameters(Node):
 
     def get_gen_ctrl(self):
         return GenCtrl(self.at_options)
+
+    @property
+    def graph_label(self):
+        """ Label used when drawing a graph. Should return a list of strings or lists of strings.
+        The outer list defines rows and inner lists columns within a row
+        """
+        return [f'{self.CLS_OP_NAME}({self.name})']
+
+    @property
+    def graph_anon_label(self):
+        """ Label used when drawing a graph with anonymous labels. Should return a list of strings or lists of strings.
+        The outer list defines rows and inner lists columns within a row
+        """
+        return ["Op"]
 
     @property
     def meta(self):
@@ -80,6 +126,22 @@ class Parameters(Node):
     @at_options.setter
     def at_options(self, val):
         self._at_options = val
+
+    @property
+    def ker_in_order(self) -> list:
+        return self._ker_in_order
+
+    @ker_in_order.setter
+    def ker_in_order(self, val: list):
+        self._ker_in_order = val
+
+    @property
+    def ker_out_order(self) -> list:
+        return self._ker_out_order
+
+    @ker_out_order.setter
+    def ker_out_order(self, val: list):
+        self._ker_out_order = val
 
     @property
     def in_dims_hint(self) -> list:
@@ -138,7 +200,8 @@ class Parameters(Node):
     @in_dims.setter
     def in_dims(self, value):
         assert isinstance(value, list), "in_dims should always be a list"
-        LOG.debug("%s in dims set to %s", self.__class__.__name__, [str(val) for val in value])
+        LOG.debug("%s in dims set to %s", self.__class__.__name__,
+                  [str(val) for val in value])
         self._in_dims = value
 
     @property
@@ -147,8 +210,17 @@ class Parameters(Node):
 
     @out_dims.setter
     def out_dims(self, value):
-        LOG.debug("%s out dims set to %s", self.__class__.__name__, [str(val) for val in value])
+        LOG.debug("%s out dims set to %s", self.__class__.__name__,
+                  [str(val) for val in value])
         self._out_dims = value
+
+    @property
+    def node_cname(self):
+        return self.at_options.node_cname
+
+    @node_cname.setter
+    def node_cname(self, val):
+        self.at_options.node_cname = val
 
     @abstractmethod
     def get_parameter_size(self):
@@ -163,17 +235,36 @@ class Parameters(Node):
     def can_equalize(self):
         pass
 
-    @abstractmethod
-    def clone(self, name, groupn=None):
-        pass
+    def set_input_size(self, dims: Sequence[Dim]):
+        self.in_dims = clone_dims(dims, self.in_dims_hint)
+        return self.in_dims
 
-    def clone_dim_with_hints(self, dims, hint_dir="in", hint_idx=None):
+    def set_output_size(self, dims: Sequence[Dim]):
+        self.out_dims = clone_dims(dims, self.out_dims_hint)
+        return self.out_dims
+
+    def clone_dim_with_hint(self, dim, hint_idx, hint_dir="in"):
+        if hint_dir == "in":
+            hints = self._in_dims_hint
+        else:
+            hints = self._out_dims_hint
+        if dim.is_named and all(k in dim.keys for k in ['c', 'h', 'w']):
+            return dim.clone(['c', 'h', 'w'])
+        else:
+            cloned_dim = dim.clone()
+            hint = None if hints is None else hints[hint_idx]
+            if hint:
+                cloned_dim.apply_naming_hints(hint)
+            return cloned_dim
+
+    def clone_dims_with_hints(self, dims, hint_dir="in", hint_idx=None):
         if hint_dir == "in":
             hints = self._in_dims_hint
         else:
             hints = self._out_dims_hint
 
-        assert hints is None or len(dims) == len(hints), "incorrect dimensions length"
+        assert hints is None or len(dims) == len(
+            hints), "incorrect dimensions length"
         cloned_dims = []
         for dim_idx, dim in enumerate(dims):
             if dim.is_named and all(k in dim.keys for k in ['c', 'h', 'w']):
@@ -186,12 +277,39 @@ class Parameters(Node):
                 cloned_dims.append(cloned_dim)
         return cloned_dims
 
+    @property
+    def op_name(self):
+        return self.CLS_OP_NAME
+
     def compute_load(self):
         return None
 
     @abstractmethod
     def __str__(self):
         pass
+
+    @staticmethod
+    def cls_op_name(name):
+        return Parameters.property_register("CLS_OP_NAME", name)
+
+    @staticmethod
+    def property_register(name, value):
+
+        def deco(cls):
+            setattr(cls, name, value)
+            return cls
+
+        return deco
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.name})'
+
+
+cls_op_name = Parameters.cls_op_name
+
+
+class InsensitiveToQuantization():
+    '''Mixin that indicates that node does not carry out arithmetic on tensor and is insenitive to quantization'''
 
 
 class SingleInputAndOutput():
@@ -206,18 +324,54 @@ class SameNumberOfDimensionsForInputs():
     '''Mixin that indicates that the node has multiple inputs that have the same dimension length'''
 
 
+class CanFuseToExpression():
+    '''Mixin that indicates that the node can fuse into an expression'''
+    EXPRESSION_OP_CLS = None
+
+    def should_fuse(self, node_set, qrec=None):
+        return True
+
+    @staticmethod
+    def expression_op(op):
+        def fuse_op(cls):
+            if not issubclass(cls, CanFuseToExpression):
+                raise ValueError(
+                    "a class decorated with expression_op must inherit CanFuseToExpression")
+            setattr(cls, 'EXPRESSION_OP_CLS', op)
+            return cls
+
+        return fuse_op
+
+    def get_expression(self, *args):
+        if not isinstance(self.EXPRESSION_OP_CLS, Symbol):
+            raise ValueError("class must be decorated with expression_op")
+#pylint: disable=not-callable
+        return self.EXPRESSION_OP_CLS(*args)
+
+
+#pylint: disable=invalid-name
+expression_op = CanFuseToExpression.expression_op
+
+
 class NoSizeChangeParameters(Parameters):
 
     def get_output_size(self, in_dims):
         return in_dims
 
     @abstractmethod
-    def clone(self, name, groupn=None):
-        pass
-
-    @abstractmethod
     def __str__(self):
         pass
+
+
+class ComparableParameters():
+    ''' Mixin that indicates that this operation can be compared with another of the same type
+    to determine redundancy. It is assumed that if A==B and B==C then A==C.'''
+
+    def is_same_operation_as(self, other):
+        return False
+
+    def can_be_grouped_with(self, other):
+        return False
 
 #pylint: disable=abstract-method
 
@@ -230,11 +384,18 @@ class FilterLikeParameters(Parameters, SingleInputAndOutput):
         self.stride = stride
         self.padding = padding
         self.pad_type = pad_type
+        self._ker_in_order = [['c', 'h', 'w']]
+        self._ker_out_order = [['c', 'h', 'w']]
+
+    @property
+    def graph_anon_label(self):
+        return ['Filt']
 
     def has_at_zero_pad(self):
         if self.padding.has_at_pad():
             if self.pad_type != "zero":
-                raise AttributeError("Padding is probably not compatible with AutoTiler")
+                raise AttributeError(
+                    "Padding is probably not compatible with AutoTiler")
             return True
         return False
 
@@ -296,12 +457,21 @@ class Transposable(Parameters):
     def has_transpose(self):
         return bool(self.transpose_in or self.transpose_out)
 
+    def apply_transposes(self, direction, dims: Sequence[Dim]):
+        trans = getattr(self, f'transpose_{direction}')
+        if trans:
+            return [dim.calc_transpose(trans[idx]) if trans[idx] else dim
+                    for idx, dim in enumerate(dims)]
+        return dims
+
     def __str__(self):
         trans = []
         if self.transpose_in:
-            trans.append("t_in: %s" % ",".join(str(trans) for trans in self.transpose_in))
+            trans.append("t_in: %s" % ",".join(str(trans)
+                                               for trans in self.transpose_in))
         if self.transpose_out:
-            trans.append("t_out: %s" % ",".join(str(trans) for trans in self.transpose_out))
+            trans.append("t_out: %s" % ",".join(str(trans)
+                                                for trans in self.transpose_out))
         return ", ".join(trans)
 
 #pylint: disable=abstract-method
@@ -309,72 +479,17 @@ class Transposable(Parameters):
 
 class FilterParameters(Parameters, SingleInputAndOutput):
 
-    def __init__(self, *args, filt=None, has_bias=False, use_compressed=False, **kwargs):
+    def __init__(self, *args, filt=None, has_bias=True, use_compressed=False, **kwargs):
         assert filt
         super(FilterParameters, self).__init__(*args, **kwargs)
         self.has_bias = has_bias
         self.filter = filt
         self._use_compressed = use_compressed
         self.stats = None
-        self._weights = None
-        self._biases = None
+        # self._weights = None
+        # self._biases = None
         self.details = None
         self.at_options.update_valid_options(CTRL_FEATURES)
-
-    @property
-    def weights(self):
-        if self._constant_store:
-            return self._constant_store.get(self, 1, get_compressed=self._use_compressed)
-        else:
-            return self._weights
-
-    @weights.setter
-    def weights(self, val):
-        if self._constant_store:
-            self._constant_store.set(self, 1, val)
-        else:
-            self._weights = val
-
-    def get_uncompressed_weights(self):
-        if self._constant_store:
-            return self._constant_store.get(self, 1, get_compressed=False)
-        else:
-            return self._weights
-
-    @property
-    def biases(self):
-        if self._constant_store:
-            return self._constant_store.get(self, 2, get_compressed=self._use_compressed)
-        else:
-            return self._biases
-
-    @biases.setter
-    def biases(self, val):
-        if self._constant_store:
-            self._constant_store.set(self, 2, val)
-        else:
-            self._biases = val
-
-    def get_uncompressed_biases(self):
-        if self._constant_store:
-            return self._constant_store.get(self, 2, get_compressed=False)
-        else:
-            return self._biases
-
-    @property
-    def use_compressed(self):
-        return self._use_compressed
-
-    @use_compressed.setter
-    def use_compressed(self, val):
-        self._use_compressed = val
-
-    def get_parameters(self):
-        return {'weights': self.weights, 'biases': self.biases}
-
-    def set_parameters(self, val):
-        self.weights = val['weights']
-        self.biases = val['biases']
 
 
 class MultiplicativeBiasParameters(FilterParameters):

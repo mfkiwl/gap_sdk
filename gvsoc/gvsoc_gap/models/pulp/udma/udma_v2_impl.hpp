@@ -279,7 +279,7 @@ class Spim_periph_v2 : public Udma_periph
 
 public:
   Spim_periph_v2(udma *top, int id, int itf_id);
-  static void slave_sync(void *_this, int data_0, int data_1, int data_2, int data_3, int mask);
+  static void slave_sync(void *_this, int sck, int data_0, int data_1, int data_2, int data_3, int mask);
   void reset(bool active);
 
 protected:
@@ -395,7 +395,7 @@ protected:
 private:
   vp::io_req_status_e status_req(vp::io_req *req);
   vp::io_req_status_e setup_req(vp::io_req *req);
-  static void rx_sync(void *, int data);
+  static void rx_sync(void *, int scl, int data);
 
   vp::trace     trace;
 };

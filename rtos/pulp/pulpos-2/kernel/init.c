@@ -29,6 +29,7 @@ typedef void (*fptr)(void);
 static fptr ctor_list[1] __attribute__((section(".ctors.start"))) = { (fptr) -1 };
 static fptr dtor_list[1] __attribute__((section(".dtors.start"))) = { (fptr) -1 };
 
+int main();
 
 static void pos_init_do_ctors(void)
 {
@@ -54,6 +55,7 @@ static void pos_init_do_dtors(void)
 
 static void pos_init_bss()
 {
+#ifdef __GAP9__
     if (pi_pmu_get_prev_state(PI_PMU_DOMAIN_CHIP) != PI_PMU_DOMAIN_STATE_DEEP_SLEEP_RETENTIVE)
     {
         unsigned int *bss = (unsigned int *)pos_bss_start();
@@ -66,6 +68,7 @@ static void pos_init_bss()
             *bss++ = 0;
         }
     }
+#endif
 }
 
 
@@ -102,6 +105,10 @@ void pos_init_start()
 
     // Now now the minimal init are done, we can activate interruptions
     hal_irq_enable();
+
+    int retval = main();
+
+    exit(retval);
 }
 
 

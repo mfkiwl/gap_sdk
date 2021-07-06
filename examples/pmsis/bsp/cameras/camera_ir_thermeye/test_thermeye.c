@@ -38,6 +38,8 @@ void test_therm_eye()
 {
     printf("Entering main controller\n");
 
+
+
     if (open_camera_thermeye(&cam))
     {
         printf("Thermal Eye camera open failed !\n");

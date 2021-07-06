@@ -320,6 +320,7 @@ namespace vp {
     std::vector<reg *> get_registers() { return this->registers; }
     void build(vp::component *comp, vp::trace *trace, std::string name="");
     bool access(uint64_t offset, int size, uint8_t *value, bool is_write);
+    void reset(bool active);
 
     vp::trace *trace;
 
@@ -392,7 +393,7 @@ namespace vp {
     virtual void start() {}
     virtual void stop() {}
     virtual void flush() {}
-    virtual void quit() {}
+    virtual void quit(int status) {}
     virtual void pre_reset() {}
     virtual void reset(bool active) {}
     virtual void load() {}
@@ -425,6 +426,7 @@ namespace vp {
     virtual vp::time_engine *get_time_engine() ;
 
     string get_path() { return path; }
+    string get_name() { return name; }
 
 
     void conf(string name, string path, vp::component *parent);
@@ -488,6 +490,7 @@ namespace vp {
 
     std::vector<vp::component *> get_childs() { return childs; }
     std::map<std::string, vp::component *> get_childs_dict() { return childs_dict; }
+    vp::component *get_component(std::string path);
 
     virtual vp::port *get_slave_port(std::string name) { return this->slave_ports[name]; }
     virtual vp::port *get_master_port(std::string name) { return this->master_ports[name]; }
@@ -496,6 +499,8 @@ namespace vp {
     virtual void add_master_port(std::string name, vp::master_port *port);
 
     void throw_error(std::string error);
+
+    virtual std::string handle_command(FILE *req_file, FILE *reply_file, std::vector<std::string> args) { return ""; }
 
     component_trace traces;
     component_power power;
@@ -525,6 +530,7 @@ namespace vp {
     std::map<std::string, slave_port *> slave_ports;
 
     string path;
+    string name;
 
     component *parent = NULL;
 

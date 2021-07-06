@@ -13,17 +13,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import logging
+
+import numpy as np
 from graph.types import SplitParameters
-from quantization.multiplicative.mult_quantization import \
-    MultQuantizationRecord
-from quantization.quantization_handler import params_type
+from quantization.qtype_constraint import MatchAll
+from quantization.quantizers.split_mixin import SplitMixin
+from quantization.unified_quantization_handler import (in_qs_constraint,
+                                                       out_qs_constraint,
+                                                       params_type)
 
 from ..mult_quantization_handler import MultQuantizionHandler
 
+LOG = logging.getLogger('nntool.' + __name__)
+
 
 @params_type(SplitParameters)
-class SplitMult(MultQuantizionHandler):
+@in_qs_constraint({'dtype': set([np.int8, np.uint8])})
+@out_qs_constraint(MatchAll({'dtype': set([np.int8, np.uint8])}))
+class SplitMult(MultQuantizionHandler, SplitMixin):
     @classmethod
-    def _quantize(cls, params, in_qs, out_dtype, stats, **kwargs):
-        o_q = in_qs[0]
-        return MultQuantizationRecord(in_qs=in_qs, out_qs=[o_q]*params.num_splits)
+    def _quantize(cls, params, in_qs, stats, **kwargs):
+        return cls._handle(params, in_qs, stats, 'scaled', **kwargs)

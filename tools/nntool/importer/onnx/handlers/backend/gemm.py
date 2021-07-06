@@ -16,8 +16,8 @@
 import numpy as np
 from graph.dim import Dim, FcFilterDim
 from graph.types import FcParameters, NNEdge
+from graph.types.input_output import ConstantInputParameters
 from importer.common.provisional_dim import ProvisionalDim
-from utils.sparse_list import SparseList
 
 from ..backend_handler import BackendHandler
 from ..handler import onnx_op, partial_support, ps_description
@@ -60,24 +60,34 @@ class Gemm(PromoteLinearMixin, BackendHandler):
                 "GEMM is only currently supported for operations that map onto a linear kernel")
 
         if len(inputs) > 2:
-            has_bias = True
             biases = cls.get_constant(inputs[2])
         else:
-            biases = None
-            has_bias = False
+            biases = np.zeros([real_y_shape[1]], dtype=np.float32)
 
         filt_dim = FcFilterDim(real_y_shape[1], real_x_shape[0])
+
+        # always create new constants since they may be modified by this not and could be linked elsewhere
         weights = cls.get_constant(y) * alpha
         if not trans_b:
             weights = np.transpose(weights, [1, 0])
-        params = FcParameters(valid_name, filt=filt_dim, has_bias=has_bias,
-                              in_dims_hint=SparseList([['c']]),
-                              out_dims_hint=SparseList([['c']]),
+        weights_params = ConstantInputParameters(
+            f'{valid_name}_weights', dims=Dim.unnamed(weights.shape), value=weights)
+        biases = biases * beta
+        biases_params = ConstantInputParameters(
+            f'{valid_name}_biases', dims=Dim.unnamed(biases.shape), value=biases)
+
+        params = FcParameters(valid_name, filt=filt_dim, has_bias=True,
+                            #   in_dims_hint=[['c']],
+                              in_dims_hint=[None, ['out_c', 'in_c'], ['out_c']],
+                              out_dims_hint=[['c']],
                               constant_store=G.constant_store)
-        params.weights = weights
-        params.biases = biases * beta
+
+        G.add_edge(NNEdge(from_node=weights_params, to_node=params, to_idx=1))
+        G.add_edge(NNEdge(from_node=biases_params, to_node=params, to_idx=2))
+
         out_dims = params.get_output_size([Dim.unnamed(real_x_shape)])
-        G.add_edge(NNEdge(from_node=x[0], to_node=params, from_idx=x[1], to_idx=0))
+        G.add_edge(
+            NNEdge(from_node=x[0], to_node=params, from_idx=x[1], to_idx=0))
         if isinstance(x[2], ProvisionalDim):
             out_dim = x[2].infer_mapping(out_dims[0].shape)
         else:

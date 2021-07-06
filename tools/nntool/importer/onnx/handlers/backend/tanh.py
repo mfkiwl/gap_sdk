@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
-from graph.types.activations import TanHActivationParameters
+from graph.types.activations import HTanHActivationParameters
 from ..backend_handler import BackendHandler
 from ..handler import onnx_op
 from .math_mixin import BasicMathMixin
@@ -26,8 +26,8 @@ class Tanh(BasicMathMixin, BackendHandler):
     @classmethod
     def _common(cls, node, **kwargs):
         return super(Tanh, cls)._common(node,
-                                        params_class=TanHActivationParameters,
-                                        constant_operation=np.arctan,
+                                        params_class=HTanHActivationParameters,
+                                        constant_operation=np.tanh,
                                         **kwargs)
 
     @classmethod

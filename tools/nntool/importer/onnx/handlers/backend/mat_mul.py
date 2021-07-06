@@ -16,7 +16,7 @@
 import numpy as np
 from graph.dim import Dim, FcFilterDim
 from graph.types import FcParameters, MatMulOpParameters, NNEdge
-from utils.sparse_list import SparseList
+from graph.types.input_output import ConstantInputParameters
 
 from ..backend_handler import BackendHandler
 from ..handler import onnx_op, partial_support, ps_description
@@ -40,17 +40,32 @@ class MatMul(PromoteLinearMixin, BackendHandler):
         if cls.is_linear(y, x_shape, y_shape):
             filt_dim = FcFilterDim(y_shape[1], x_shape[0])
             weights = np.transpose(cls.get_constant(y), [1, 0])
-            params = FcParameters(valid_name, filt=filt_dim, has_bias=False,
-                                  in_dims_hint=SparseList([['c']]),
-                                  out_dims_hint=SparseList([['c']]),
+            weights_params = ConstantInputParameters(f'{valid_name}_weights',
+                                                     dims=Dim.unnamed(
+                                                         [y_shape[1], x_shape[0]]),
+                                                     value=weights)
+            params = FcParameters(valid_name, filt=filt_dim, has_bias=True,
+                                #   in_dims_hint=[
+                                #       ['c'], ['out_c', 'in_c'], ['out_c']],
+                                  in_dims_hint=[
+                                      None, ['out_c', 'in_c'], ['out_c']],
+                                  out_dims_hint=[['c']],
                                   constant_store=G.constant_store)
-            params.weights = weights
             out_dims = params.get_output_size([Dim.unnamed(x_shape)])
+            biases_params = ConstantInputParameters(f'{valid_name}_biases', dims=Dim.unnamed([y_shape[1]]),
+                                                    value=np.zeros((y_shape[1]), dtype=np.float32))
+            G.add_edge(NNEdge(from_node=weights_params,
+                              to_node=params, to_idx=1))
+            G.add_edge(NNEdge(from_node=biases_params,
+                              to_node=params, to_idx=2))
         else:
             params = MatMulOpParameters(valid_name)
-            out_dims = params.get_output_size([Dim.unnamed(x_shape), Dim.unnamed(y_shape)])
-            G.add_edge(NNEdge(from_node=y[0], to_node=params, from_idx=y[1], to_idx=1))
-        G.add_edge(NNEdge(from_node=x[0], to_node=params, from_idx=x[1], to_idx=0))
+            out_dims = params.get_output_size(
+                [Dim.unnamed(x_shape), Dim.unnamed(y_shape)])
+            G.add_edge(
+                NNEdge(from_node=y[0], to_node=params, from_idx=y[1], to_idx=1))
+        G.add_edge(
+            NNEdge(from_node=x[0], to_node=params, from_idx=x[1], to_idx=0))
 
         pout_dims = x[2].infer_mapping(out_dims[0].shape)
         all_nodes[node.output[0]] = (params, 0, pout_dims)

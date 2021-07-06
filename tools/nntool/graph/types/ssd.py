@@ -17,18 +17,20 @@ import logging
 
 from graph.dim import Dim
 
-from .base import (Parameters, SensitiveToOrder)
+from .base import Parameters, SensitiveToOrder, cls_op_name
 
 LOG = logging.getLogger("nntool." + __name__)
 
+
+@cls_op_name('ssd_detector')
 class SSDDetectorParameters(Parameters, SensitiveToOrder):
-    op_name = "ssd_detector"
 
     INPUT_NAMES = ['boxes_offsets', 'scores', 'anchors']
 
     def __init__(self, *args, parameters=None, **kwargs):
         super(SSDDetectorParameters, self).__init__(*args, **kwargs)
         self._parameters = parameters
+        self._parameters["use_exp_for_wh_decode"] = True
         self.decoder_config = {'using_json_config': {'INCLUDE': False, 'json_config_path': ''},
                                'using_pipeline_config': {'INCLUDE': False, 'pipeline_config_path': ''},
                                'using_params': {'INCLUDE': True, 'params': self._parameters}}
@@ -77,6 +79,14 @@ class SSDDetectorParameters(Parameters, SensitiveToOrder):
         self._parameters['max_bb_before_nms'] = val
 
     @property
+    def use_exp_for_wh_decode(self):
+        return self._parameters['use_exp_for_wh_decode']
+
+    @use_exp_for_wh_decode.setter
+    def use_exp_for_wh_decode(self, val):
+        self._parameters['use_exp_for_wh_decode'] = val
+
+    @property
     def nms_iou_threshold(self):
         return self._parameters['nms_iou_threshold']
 
@@ -97,9 +107,6 @@ class SSDDetectorParameters(Parameters, SensitiveToOrder):
             Dim(shape=[num_detected_boxes], is_ordered=True),
             Dim(shape=[num_detected_boxes], is_ordered=True),
         ]
-
-    def clone(self, name, groupn=None):
-        raise NotImplementedError()
 
     def __str__(self):
         return "{} SCORE_THR {:.2f} IOU_THR {:.2f}".format(

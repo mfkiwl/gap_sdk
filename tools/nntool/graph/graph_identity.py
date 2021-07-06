@@ -86,14 +86,6 @@ class GraphIdentity():
         self._identity['tflite_quantization'] = val
 
     @property
-    def quantization_type(self):
-        return self._identity.get('quantization_type')
-
-    @quantization_type.setter
-    def quantization_type(self, val: str):
-        self._identity['quantization_type'] = val
-
-    @property
     def hexdigest(self):
         h = xxhash.xxh64()
         h.update(json.dumps(self._identity, sort_keys=True))

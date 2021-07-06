@@ -3,7 +3,8 @@ NPROC := $(shell nproc)
 SCHEMA_V3=schema_v3
 SCHEMA_HEAD=schema
 SCHEMA_HEAD_NAME=schema_head
-SCHEMA_HEAD_TAG=54151bec863ab6159b3c288f8a3dc6b4d281bb27
+SCHEMA_HEAD_TAG=d43eee37c1accb6607d2b5672e4145bd62a778fc
+# SCHEMA_HEAD_TAG=54151bec863ab6159b3c288f8a3dc6b4d281bb27
 PACKAGES=build/packages
 FLAT_SRC=$(PACKAGES)/flatbuffers
 FLAT_BUILD=$(FLAT_SRC)/build
@@ -71,11 +72,16 @@ schema_ui/__init__.py: schema_ui/tflite_$(SCHEMA_HEAD_NAME)
 	cat schema_ui/tflite_$(SCHEMA_HEAD_NAME)/*.py > $@
 
 req:
-	python3 -m pip install -r requirements.txt
+	# Hack to order the requirements
+	cat requirements.txt | xargs -n 1 -L 1 python3 -m pip install
 
 gen_req: clean
 	pipreqs --force . 
 	pipreqs --print ../nntool_examples >> requirements.txt
+
+vscode_env:
+	env | grep TILER > \.env
+	env | grep NNTOOL >> \.env
 
 clean:
 	rm -rf build flatbuffers $(TFLITE_DIR)/tflite_$(SCHEMA_V3) $(TFLITE_DIR)/tflite_$(SCHEMA_HEAD_NAME)

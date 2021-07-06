@@ -20,5 +20,16 @@ int CNN_Norm(
 	int DoOffset,
 	nntool_kop_t kop
 );
+int CNN_SignedUnsigned(
+	char *Name,
+    int In_DataSize,
+	int Out_DataSize,
+	int Sz
+);
+// int CNN_Copy(
+// 	char *Name,
+//     CNN_GenControl_T *Ctrl,
+// 	int Sz
+// );
 
 #endif

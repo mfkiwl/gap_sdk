@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import hashlib
 from copy import deepcopy
 
 import numpy as np
@@ -21,10 +22,10 @@ from graph.dim import Dim
 from graph.types.activations import ActivationParameters
 from graph.types.base import NNEdge
 from graph.types.input_output import ConstantInputParameters
+from graph.types.others import ReshapeParameters
 from importer.common.provisional_dim import ProvisionalDim
-from quantization.multiplicative.mult_quantization import (
-    MultConstantQuantizationRecord, MultQuantizationRecord,
-    MultQuantizationRecordBase)
+from quantization.new_qrec import QRec
+from quantization.qtype import QType
 from utils.node_id import NodeId
 
 from ..tflite_schema_head.ActivationFunctionType import ActivationFunctionType
@@ -57,9 +58,17 @@ class BackendHandler(Handler):
 
     @classmethod
     def _verify_constant(cls, inp):
-        if isinstance(inp[0], ConstantInputParameters):
-            return inp[0].value
+        if cls._is_constant(inp):
+            return cls._get_constant(inp)
         raise ValueError("expected node %s to be constant input" % inp[0].name)
+
+    @classmethod
+    def _is_constant(cls, inp):
+        return isinstance(inp[0], ConstantInputParameters)
+
+    @classmethod
+    def _get_constant(cls, inp):
+        return inp[0].value
 
     @classmethod
     def _slice_len(cls, vstart, vend, vstep):
@@ -72,6 +81,8 @@ class BackendHandler(Handler):
     def fuse_activation(cls, tfl_opts, name, params, **kwargs):
         G = kwargs['G']
         opts = kwargs['opts']
+        ext = hashlib.sha1(name.encode(
+            "UTF-8")).hexdigest()[:8] if opts.get('anonymise') else 'activation'
         if opts.get('load_quantization') and NodeId(params) in G.quantization:
             node_qrec = G.quantization[NodeId(params)]
         else:
@@ -81,16 +92,18 @@ class BackendHandler(Handler):
         #     return add_node(self.G, node)
         aparams = None
         if tfl_opts.FusedActivationFunction() == ActivationFunctionType.NONE:
-            if node_qrec is not None and isinstance(node_qrec, MultQuantizationRecordBase):
+            if node_qrec is not None and node_qrec.ktype.startswith('scaled'): # and opts.get('insert_relus'):
                 # here we have no activation in an asymmetric qtype -> may be an omitted relu
-                if node_qrec.out_qs[0].min_val == 0:
+                if node_qrec.out_qs[0] is not None and node_qrec.out_qs[0].min_val == 0:
                     if np.all(np.round(node_qrec.out_qs[0].max_val) == 6):
-                        aparams = ActivationParameters.get_activation('relu6', name + "_activation")
+                        aparams = ActivationParameters.get_activation(
+                            'relu6', name + f"_{ext}")
                     else:
-                        aparams = ActivationParameters.get_activation('relu', name + "_activation")
+                        aparams = ActivationParameters.get_activation(
+                            'relu', name + f"_{ext}")
         else:
             aparams = ActivationParameters.get_activation(cls.TF_ACTIVATIONS[tfl_opts.FusedActivationFunction()],
-                                                          name + "_activation")
+                                                          name + f"_{ext}")
         if aparams:
             G.add_edge(NNEdge(from_node=params, to_node=aparams))
 
@@ -98,10 +111,9 @@ class BackendHandler(Handler):
                 # In between the fused operation and activation the
                 # transfer is in int32 representation
                 node_qrec = G.quantization[NodeId(params)]
-                outa_qtype = deepcopy(node_qrec.out_qs[0])
-                #node_qrec.out_qs[0].dtype = np.int32
                 ina_qtype = deepcopy(node_qrec.out_qs[0])
-                G.quantization[NodeId(aparams)] = MultQuantizationRecord(
+                outa_qtype = deepcopy(ina_qtype)
+                G.quantization[NodeId(aparams)] = QRec.scaled(
                     in_qs=[ina_qtype], out_qs=[outa_qtype])
             params = aparams
         return params
@@ -127,6 +139,7 @@ class BackendHandler(Handler):
             adjust_transposes = [None] * len(node.nputs)
         const_params = []
 
+        # TODO - this should just be picking up the existing constant nodes not creating new ones.
         for idx, tensor in enumerate(node.input):
             if tensor is None or idx in exclude or (skip_empty_tensors and not tensor.is_constant):
                 const_params.append(None)
@@ -139,7 +152,8 @@ class BackendHandler(Handler):
                 const_param = ConstantInputParameters(
                     tensor.name,
                     dims=Dim.unnamed(tensor.shape),
-                    value=tensor.value)
+                    value=tensor.value,
+                    constant_store=G.constant_store)
                 all_nodes[tensor] = (
                     const_param,
                     0,
@@ -157,16 +171,15 @@ class BackendHandler(Handler):
                 const_param.is_intermediate = node.is_intermediate(idx)
                 const_param.short_name = short_names[idx]
 
-                if opts.get('load_tensors'):
-                    const_param.value = np.reshape(tensor.value, tensor.shape)
+                const_param.value = np.reshape(tensor.value, tensor.shape)
 
-                if opts.get('load_quantization'):
-                    G.quantization[NodeId(const_param)] = MultConstantQuantizationRecord(
-                        in_qs=[tensor.qtype],
-                        out_qs=[tensor.qtype])
+                # if opts.get('load_quantization'):
+                #     G.quantization[NodeId(const_param)] = MultConstantQuantizationRecord(
+                #         in_qs=[tensor.qtype],
+                #         out_qs=[tensor.qtype])
 
-            if load_quantization_if_present and tensor.qtype:
-                const_param.value_quantization = tensor.qtype
+            # if load_quantization_if_present and tensor.qtype:
+            #     const_param.value_quantization = tensor.qtype
 
             const_params.append(const_param)
             G.add_edge(NNEdge(const_param, params, to_idx=idx))
@@ -185,15 +198,51 @@ class BackendHandler(Handler):
                 continue
             assert all(val.shape[idx] == 1 for idx, dim in enumerate(model) if dim is None),\
                 "value has axis that is larger than one in an unknown dimension"
-            new_shape = [dim for idx, dim in enumerate(val.shape) if model[idx] is not None]
+            new_shape = [dim for idx, dim in enumerate(
+                val.shape) if model[idx] is not None]
             inp[0].value = np.reshape(inp[0].value, new_shape)
             inp[0].dims = Dim.unnamed(new_shape)
 
+    @classmethod
+    def convert_to_symmetric(cls, qtypes):
+        return [QType.from_min_max_sq(qtype.min_val, qtype.max_val)
+                if qtype is not None and (qtype.is_asymmetric or not qtype.signed) else qtype for qtype in qtypes]
 
     @classmethod
     def load_tf_quantization(cls, input_tensors, output_tensors, in_qs=None, out_qs=None, qrec_class=None):
         if qrec_class is None:
-            qrec_class = MultQuantizationRecord
-        qrec = qrec_class(in_qs=in_qs if in_qs is not None else [tensor.qtype for tensor in input_tensors],
-                          out_qs=out_qs if out_qs is not None else [tensor.qtype for tensor in output_tensors])
+            qrec = QRec.scaled(
+                in_qs=cls.convert_to_symmetric(
+                    in_qs if in_qs is not None else [tensor.qtype for tensor in input_tensors]),
+                out_qs=cls.convert_to_symmetric(
+                    out_qs if out_qs is not None else [tensor.qtype for tensor in output_tensors]))
+        else:
+            qrec = qrec_class(
+                in_qs=cls.convert_to_symmetric(
+                    in_qs if in_qs is not None else [tensor.qtype for tensor in input_tensors]),
+                out_qs=cls.convert_to_symmetric(
+                    out_qs if out_qs is not None else [tensor.qtype for tensor in output_tensors]))
         return qrec
+
+    @classmethod
+    def remove_known_batch_dimension(cls, G, x, node, batch_axis=0):
+        x_shape = x[2].shape
+        if x_shape[batch_axis] is not None:
+            if x_shape[0] > 1:
+                raise ValueError(
+                    f'multi batch (n={x_shape[batch_axis]}) operations are not supported by {node.name}')
+            rparams = ReshapeParameters(
+                f'{node.name}_batch',
+                old_shape=Dim.unnamed(x_shape),
+                shape=Dim.unnamed(x_shape[0:batch_axis:]+x_shape[batch_axis+1::]))
+            if G.quantization:
+                qrec = G.quantization[NodeId(x[0])]
+                G.quantization[NodeId(rparams)] = QRec.copy_ktype(
+                    qrec,
+                    in_qs=[qrec.out_qs[0]],
+                    out_qs=[qrec.out_qs[0]])
+            G.add_edge(
+                NNEdge(from_node=x[0], to_node=rparams, from_idx=x[1], to_idx=0))
+            return (rparams, 0, ProvisionalDim(x_shape[0:batch_axis:]+[None]+x_shape[batch_axis+1::]))
+        else:
+            return x

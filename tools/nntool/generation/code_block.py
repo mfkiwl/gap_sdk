@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-quote = lambda s: '"'+s+'"'
+QUOTE = lambda s: '"'+s+'"'
 
 class CodeBlock():
     def __init__(self, starting_indent=0, indent_char="    "):
@@ -44,6 +44,12 @@ class CodeBlock():
     def write(self, fmt, *args):
         fmt = self.get_indent() + fmt
         self._lines.append(fmt.format(*args))
+        return self
+
+    def write_lines(self, lines):
+        indent = self.get_indent()
+        for line in lines.split('\n'):
+            self._lines.append(indent + line)
         return self
 
     def write_start(self, fmt, *args):

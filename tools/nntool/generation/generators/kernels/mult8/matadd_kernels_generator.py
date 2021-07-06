@@ -18,10 +18,14 @@ import logging
 from generation.at_types.at_params import (NO_ACTIVATION, gen_active_at_params)
 from generation.at_types.gen_ctrl import GenCtrl
 from generation.code_block import CodeBlock
-from generation.generators.generator_decorators import generation_function, QREC_MULT8
+from generation.generator_decorators import generation_function, QREC_MULT8
 from graph.types import MatrixAddParameters, ActivationFusion
 
-from ..autotiler_kernel import AutotilerKernel
+from ..autotiler_kernel import (AutotilerKernel, gen_include_paths,
+                                gen_includes, gen_sources,
+                                kernel_include_paths, kernel_includes,
+                                kernel_sources)
+
 
 LOG = logging.getLogger("nntool." + __name__)
 
@@ -29,14 +33,18 @@ MAT_ADD_OPER = "KOP_MATADD"
 
 @generation_function("kernels", (MatrixAddParameters, ActivationFusion), qrec_types=(QREC_MULT8, ))
 def matadd_kernel_generator(gen, node, qrec, in_eparams, out_eparams, cname):
-    del in_eparams, out_eparams, qrec
+    del out_eparams, qrec
     if isinstance(node, ActivationFusion):
         cnodes = node.contained_nodes()
         if isinstance(cnodes[0], MatrixAddParameters):
+            if in_eparams[0].dims.size() != in_eparams[1].dims.size():
+                raise ValueError("missing generator: the matrix add generator only handles adds of tensors of the same size")
             gen.kernels.append(MatAddKernel(node.name, cname, cnodes[0], cnodes[1], at_ver=gen.opts['at_ver'],
                                             force_relu=gen.force_relu))
             return True
         return False
+    if in_eparams[0].dims.size() != in_eparams[1].dims.size():
+        raise ValueError("missing generator: the matrix add generator only handles adds of tensors of the same size")
     gen.kernels.append(MatAddKernel(node.name, cname, node, None, at_ver=gen.opts['at_ver'], force_relu=gen.force_relu))
     return True
 
@@ -65,6 +73,21 @@ def make_three_dims(dims):
     factors = balanced_factors(prod)
     return (dims[0], factors[0], factors[1])
 
+@kernel_sources(
+    '$(TILER_CNN_KERNEL_PATH_SQ8)/CNN_MatAlgebra_SQ8.c')
+@kernel_include_paths(
+    '$(TILER_CNN_KERNEL_PATH)',
+    '$(TILER_CNN_KERNEL_PATH_SQ8)')
+@kernel_includes(
+    'CNN_BasicKernels_SQ8.h')
+@gen_sources(
+    '$(TILER_CNN_GENERATOR_PATH)/CNN_Generator_Util.c',
+    '$(TILER_CNN_GENERATOR_PATH_SQ8)/CNN_Generators_SQ8.c')
+@gen_include_paths(
+    '$(TILER_CNN_GENERATOR_PATH)',
+    '$(TILER_CNN_GENERATOR_PATH_SQ8)')
+@gen_includes(
+    'CNN_Generators_SQ8.h')
 class MatAddKernel(AutotilerKernel):
     def __init__(self, node_name, cname, matrixadd_params, act_params, at_ver=3, gen_ctrl=None, force_relu=True):
         if gen_ctrl is None:

@@ -12,13 +12,32 @@ platform = $(PMSIS_PLATFORM)
 endif
 endif
 
+SHELL=bash
+ECHO_GREEN = $(shell tput setaf 2)
+ECHO_BOLD = $(shell tput bold)
+ECHO_CLEAR = $(shell tput sgr0)
+
+help:
+	@echo "=================== ${ECHO_BOLD}${ECHO_GREEN}GAP SDK Application${ECHO_CLEAR} ==================="
+	@echo ""
+	@echo "Main targets:"
+	@echo " - ${ECHO_BOLD}clean${ECHO_CLEAR} : clean the application"
+	@echo " - ${ECHO_BOLD}all${ECHO_CLEAR}   : build the application"
+	@echo " - ${ECHO_BOLD}run${ECHO_CLEAR}   : run the application"
+	@echo ""
+	@echo "Common options:"
+	@echo " - ${ECHO_BOLD}platform=<value>${ECHO_CLEAR} : select the platform (gvsoc or board)"
+	@echo " - ${ECHO_BOLD}PMSIS_OS=<value>${ECHO_CLEAR} : select the OS (freertos or pulpos)"
+	@echo ""
+	@echo "For more information, please refer to the SDK documentation."
+
 ifeq '$(PMSIS_OS)' 'pulpos'
 ifeq '$(TARGET_CHIP)' 'GAP9_V2'
 export USE_PULPOS=1
 endif
 endif
 
-APP_INC += $(GAP_SDK_HOME)/tools/autotiler_v3/Emulation
+APP_INC += $(TILER_EMU_INC)
 
 ifndef USE_PULPOS
 ifeq ($(BOARD_NAME), gapuino)
@@ -44,7 +63,7 @@ else ifeq ($(BOARD_NAME), ai_deck)
 COMMON_CFLAGS          += -DCONFIG_AI_DECK
 
 else ifeq ($(BOARD_NAME), vega)
-COMMON_CFLAGS          += -DCONFIG_GAP9
+COMMON_CFLAGS          += -DCONFIG_VEGA
 
 else ifeq ($(BOARD_NAME), gap9_v2)
 COMMON_CFLAGS          += -DCONFIG_GAP9_V2
@@ -57,6 +76,43 @@ endif
 
 ifdef runner_args
 export GVSOC_OPTIONS=$(runner_args)
+endif
+
+
+# Configuration
+
+CONFIG_BOOT_DEVICE ?= hyperflash
+CONFIG_FREQUENCY_PERIPH ?= 160000000
+CONFIG_FREQUENCY_FC ?= 50000000
+CONFIG_FREQUENCY_CLUSTER ?= 50000000
+CONFIG_FREQUENCY_SFU ?= 50000000
+CONFIG_FREQUENCY_FPGA ?= 50000000
+
+ifeq '$(CONFIG_BOOT_DEVICE)' 'hyperflash'
+CONFIG_BOOT_DEVICE_FREQUENCY ?= 166000000
+endif
+
+ifeq '$(CONFIG_BOOT_DEVICE)' 'spiflash'
+CONFIG_BOOT_DEVICE_FREQUENCY ?= 166000000
+override config_args += --config-opt=runner/boot/device=target/board/devices/spiflash
+endif
+
+ifeq '$(CONFIG_BOOT_DEVICE)' 'mram'
+CONFIG_BOOT_DEVICE_FREQUENCY ?= 25000000
+override config_args += --config-opt=runner/boot/device=target/board/devices/mram
+endif
+
+
+ifdef GV_PROXY
+override config_args += --config-opt=**/gvsoc/proxy/enabled=true
+endif
+
+ifdef GV_PROXY_PORT
+override config_args += --config-opt=**/gvsoc/proxy/port=$(GV_PROXY_PORT)
+endif
+
+ifdef GV_DEBUG_MODE
+override config_args += --config-opt=**/gvsoc/debug-mode=true
 endif
 
 
@@ -75,6 +131,13 @@ APP_SRCS           += $(GAP_LIB_PATH)/jpeg/dct.c \
                       $(GAP_LIB_PATH)/jpeg/cluster.c
 APP_INC            += $(GAP_LIB_PATH)/include $(GAP_LIB_PATH)/include/gaplib
 endif				# CONFIG_GAP_LIB_JPEG
+
+ifeq '$(CONFIG_GAP_LIB_WAVIO)' '1'
+GAP_LIB_PATH        = $(GAP_SDK_HOME)/libs/gap_lib
+APP_SRCS           += $(GAP_LIB_PATH)/wav_io/wavIO.c
+APP_INC            += $(GAP_LIB_PATH)/include $(GAP_LIB_PATH)/include/gaplib
+endif				# CONFIG_GAP_LIB_WAVIO
+
 
 
 ifeq '$(PMSIS_OS)' 'freertos'
@@ -234,3 +297,10 @@ include $(GAP_SDK_HOME)/tools/gapy/rules/littlefs.mk
 include $(GAP_SDK_HOME)/tools/gapy/rules/flash.mk
 
 endif
+
+vscode:
+	mkdir -p .vscode
+	mkdir -p .vscode/scripts
+	cp -r $(GAP_SDK_HOME)/tools/rules/vscode/settings.json .vscode
+	cat $(GAP_SDK_HOME)/tools/rules/vscode/tasks.json | sed s#@GAP_TOOLCHAIN@#$(GAP_RISCV_GCC_TOOLCHAIN)#g | sed s#@GAP_SDK@#$(GAP_SDK_HOME)#g > .vscode/tasks.json
+	cat $(GAP_SDK_HOME)/tools/rules/vscode/launch.json | sed s#@BIN@#$(BIN)#g | sed s#@GDB@#`which riscv64-unknown-elf-gdb`# > .vscode/launch.json

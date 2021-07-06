@@ -13,9 +13,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+
 import logging
 
-from .base import NoSizeChangeParameters, SingleInputAndOutput
+from expressions.symbolic.basic import HSigmoid, HTanh, Relu, Sigmoid, TanH
+
+from .base import (CanFuseToExpression, NoSizeChangeParameters,
+                   SingleInputAndOutput, Transposable, expression_op, cls_op_name)
 
 LOG = logging.getLogger("nntool." + __name__)
 
@@ -27,17 +31,22 @@ class ActivationParameters(NoSizeChangeParameters, SingleInputAndOutput):
 
     @classmethod
     def get_activation(cls, activation_type: str, name: str):
-        if activation_type == "hsigmoid":
-            return HSigmoidActivationParameters(name)
         if activation_type == "relu":
             return ReluActivationParameters(name)
         if activation_type == "relu6":
             return ReluActivationParameters(name, upper_bound=6)
-        if activation_type == "hswish":
-            return HSwishActivationParameters(name)
-        if activation_type in ["tanh", "htanh"]:
-            return TanHActivationParameters(name)
+        actnames = {act_class.CLS_OP_NAME: act_class for act_class in ActivationParameters.__subclasses__()}
+        if activation_type in actnames:
+            return actnames[activation_type](name)
         raise ValueError("don't know how to create %s"%activation_type)
+
+    @property
+    def graph_label(self):
+        return [self.name, self.activation.upper()]
+
+    def should_fuse(self, node_set, qrec=None):
+        # activation should fuse into an expression if there are several elements
+        return len(node_set) > 1
 
     @property
     def activation(self):
@@ -55,7 +64,9 @@ class ActivationParameters(NoSizeChangeParameters, SingleInputAndOutput):
             self.at_options
         )
 
-class ReluActivationParameters(ActivationParameters):
+@expression_op(Relu)
+@cls_op_name('relu')
+class ReluActivationParameters(ActivationParameters, CanFuseToExpression):
     def __init__(self, name, lower_bound=0, upper_bound=None):
         super(ReluActivationParameters, self).__init__(name)
         self._lower_bound = lower_bound
@@ -87,13 +98,14 @@ class ReluActivationParameters(ActivationParameters):
     def upper_bound(self, val):
         self._upper_bound = val
 
-    def clone(self, name, groupn=None):
-        return ReluActivationParameters(name, self._lower_bound, self._upper_bound)
+    def get_expression(self, *args):
+        return Relu(*args, lower_bound=self.lower_bound, upper_bound=self.upper_bound)
 
     @property
     def can_equalize(self):
-        return self.op_name == "relu"
+        return self.activation == "relu"
 
+@cls_op_name('leaky')
 class LeakyActivationParameters(ActivationParameters):
     def __init__(self, name, leak_factor=0.01):
         super(LeakyActivationParameters, self).__init__(name)
@@ -104,17 +116,12 @@ class LeakyActivationParameters(ActivationParameters):
         return self._leak_factor
 
     @property
-    def op_name(self):
-        return "leaky"
-
-    def clone(self, name, groupn=None):
-        return LeakyActivationParameters(name, self._leak_factor)
-
-    @property
     def can_equalize(self):
         return False
 
-class HSigmoidActivationParameters(ActivationParameters):
+@expression_op(HSigmoid)
+@cls_op_name('hsigmoid')
+class HSigmoidActivationParameters(ActivationParameters, CanFuseToExpression):
     def __init__(self, name, offset=3):
         super(HSigmoidActivationParameters, self).__init__(name)
         self._offset = offset
@@ -128,54 +135,69 @@ class HSigmoidActivationParameters(ActivationParameters):
         self._offset = val
 
     @property
-    def op_name(self):
-        return "hsigmoid"
-
-    def clone(self, name, groupn=None):
-        return HSigmoidActivationParameters(name)
-
-    @property
     def can_equalize(self):
         return False
 
     def __str__(self):
         return "Activation {} offset={} {}".format(
-            self.op_name,
+            self.activation,
             self.offset,
             self.at_options
         )
 
+@cls_op_name('hswish')
 class HSwishActivationParameters(ActivationParameters):
     @property
-    def op_name(self):
+    def activation(self):
         return "hswish"
 
-    def clone(self, name, groupn=None):
-        return HSwishActivationParameters(name)
+    @property
+    def can_equalize(self):
+        return False
+
+@expression_op(HTanh)
+@cls_op_name('htanh')
+class HTanHActivationParameters(ActivationParameters, CanFuseToExpression):
+    def __init__(self, name):
+        super(HTanHActivationParameters, self).__init__(name)
+        self.at_options.valid_options['OUT_8BITS'] = int
 
     @property
     def can_equalize(self):
         return False
 
-class TanHActivationParameters(ActivationParameters):
-    @property
-    def op_name(self):
-        return "tanh"
+    def should_fuse(self, node_set, qrec=None):
+        # TODO - HTanH is only supported in an expression currently
+        return True
 
-    def clone(self, name, groupn=None):
-        return TanHActivationParameters(name)
+@expression_op(TanH)
+@cls_op_name('tanh')
+class TanHActivationParameters(ActivationParameters, CanFuseToExpression):
 
     @property
     def can_equalize(self):
         return False
 
-class SoftMaxParameters(NoSizeChangeParameters, SingleInputAndOutput):
+    def should_fuse(self, node_set, qrec=None):
+        # TODO - TanH is only supported in an expression currently
+        return True
 
-    op_name = "softmax"
+@expression_op(Sigmoid)
+@cls_op_name('sigmoid')
+class SigmoidActivationParameters(ActivationParameters, CanFuseToExpression):
 
-    def __init__(self, name, beta=None):
+    @property
+    def can_equalize(self):
+        return False
+
+@cls_op_name('softmax')
+class SoftMaxParameters(Transposable, SingleInputAndOutput):
+
+    def __init__(self, name, beta=None, axis=None):
         super(SoftMaxParameters, self).__init__(name)
         self.beta = 0.0 if beta is None else beta
+        self.axis = axis
+        self.at_options.valid_options['OUT_8BITS'] = int
 
     def get_parameter_size(self):
         return 0
@@ -184,14 +206,19 @@ class SoftMaxParameters(NoSizeChangeParameters, SingleInputAndOutput):
     def can_equalize(self):
         return False
 
-    def clone(self, name, groupn=None):
-        raise NotImplementedError()
-
     def compute_load(self):
         return self.in_dims[0].size() * 2
 
+    def get_output_size(self, in_dims):
+        if self.axis is None:
+            self.axis = len(in_dims[0]) - 1
+        if self.transpose_in:
+            in_dims = [dim.calc_transpose(trans) if trans is not None else dim
+                       for dim, trans in zip(in_dims, self.transpose_in)]
+        out_dim = in_dims[0]
+        if self.transpose_out and self.transpose_out[0]:
+            out_dim.transpose(self.transpose_out[0])
+        return [out_dim]
+
     def __str__(self):
-        return "BETA {} {}".format(
-            self.beta,
-            self.at_options
-        )
+        return f"Beta {self.beta} Axis {self.axis} Op: {self.at_options}"

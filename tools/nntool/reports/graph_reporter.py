@@ -14,9 +14,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from graph.nngraph import NNGraph
+from graph.types import ConstantInputParameters
 from utils.tabular import Tabular, TabularColumn, TabularColumnGroup
-
-from .reporter import Reporter
 
 def scale_num(num):
     if not num:
@@ -83,18 +82,23 @@ def get_graph_memory_usage(steps, liveness):
             max_active = active
     return max_active, tot_params
 
-class GraphReporter(Reporter):
-    def __init__(self, do_totals=False, split_dims=False, step=None):
-        super().__init__()
+class GraphReporter():
+    def __init__(self, do_totals=False, split_dims=False, show_constants=False):
         self._do_totals = do_totals
         self._split_dims = split_dims
-        self._step = step
+        self._show_constants = show_constants
 
-    def report(self, G: NNGraph, stats) -> Tabular:
-        del stats
+    def report(self, G: NNGraph, nodes=None) -> Tabular:
+        if nodes is None:
+            nodes = G.nodes()
+
+        nodes = sorted(nodes, key=lambda x: x.step_idx)
+        start_step = nodes[0].step_idx
+        end_step = nodes[-1].step_idx
+
         steps = G.graph_state.steps
         liveness = G.graph_state.liveness
-        first_node = steps[0]['node']
+        first_node = steps[start_step]['node']
         active_order = "x".join(first_node.out_dims[0].order)
         tab = Tabular()
         self.do_headers(active_order, tab)
@@ -104,17 +108,19 @@ class GraphReporter(Reporter):
         tot_ops = 0
 
         for i, node, active, params_size, ops in graph_walk(steps, liveness):
-            if self._step is not None and self._step != node.step_idx:
+            if node.step_idx < start_step or node.step_idx > end_step:
                 continue
+
             tot_params += params_size
             if ops:
                 tot_ops += ops
             if active > max_active:
                 max_active = active
 
-            self.do_operation(node, G, tab, i, active, params_size, ops)
+            if self._show_constants or not isinstance(node, ConstantInputParameters):
+                self.do_operation(node, G, tab, i, active, params_size, ops)
 
-        if self._step is None:
+        if start_step != end_step:
             self.check_do_totals(tab, max_active, tot_params, tot_ops)
         return tab
 
@@ -123,7 +129,7 @@ class GraphReporter(Reporter):
 
         in_edges = G.in_edges(node.name)
         in_edges.sort(key=lambda edge: edge.to_idx)
-        in_steps = [edge.from_node.step_idx for edge in in_edges]
+        in_steps = "\n".join([f'{edge.from_node.step_idx}/{edge.from_idx}' for edge in in_edges])
 
         if self._split_dims:
             s_in = str_dim_xl(node, 'in_dims', 0)
@@ -139,7 +145,7 @@ class GraphReporter(Reporter):
                 get_dim(s_out, 0),
                 get_dim(s_out, 1),
                 get_dim(s_out, 2),
-                ",".join([str(in_step) for in_step in in_steps]),
+                in_steps,
                 active,
                 params_size,
                 scale_num(ops),
@@ -153,7 +159,7 @@ class GraphReporter(Reporter):
                 operation,
                 str_dims(node, 'in_dims'),
                 str_dims(node, 'out_dims'),
-                "\n".join([str(in_step) for in_step in in_steps]),
+                in_steps,
                 active,
                 params_size,
                 scale_num(ops),

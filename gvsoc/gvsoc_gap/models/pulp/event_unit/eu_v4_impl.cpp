@@ -31,7 +31,6 @@ class Event_unit;
 class Dispatch_unit;
 class Mutex_unit;
 
-
 // Timing constants
 
 // Cycles required by the core to really wakeup after his clock is back
@@ -1013,6 +1012,7 @@ void Core_event_unit::irq_wakeup_handler()
   this->check_state();
 }
 
+
 void Core_event_unit::check_state()
 {
   //top->trace.msg("Checking core state (coreId: %d, active: %d, waitingEvent: %d, status: 0x%llx, evtMask: 0x%llx, irqMask: 0x%llx)\n", coreId, active, waitingEvent, status, evtMask, irqMask);
@@ -1021,7 +1021,7 @@ void Core_event_unit::check_state()
   uint32_t status_evt_masked = status.get() & evt_mask.get();
   int irq = status_irq_masked ? 31 - __builtin_clz(status_irq_masked) : -1;
 
-  top->trace.msg("Checking core state (coreId: %d, active: %d, status: 0x%llx, evtMask: 0x%llx, irqMask: 0x%llx)\n", core_id, this->is_active.get(), status, evt_mask, irq_mask);
+  top->trace.msg("Checking core state (coreId: %d, active: %d, status: 0x%llx, evtMask: 0x%llx, irqMask: 0x%llx)\n", core_id, this->is_active.get(), status.get(), evt_mask.get(), irq_mask.get());
 
   if (this->is_active.get())
   {
@@ -1177,8 +1177,10 @@ vp::io_req_status_e Semaphore_unit::req(vp::io_req *req, uint64_t offset, bool i
     {
       if (semaphore->value > 0)
       {
+        *data = semaphore->value;
         semaphore->set_value(semaphore->value - 1);
         semaphore->trace_value.event((uint8_t *)&semaphore->value);
+        req->inc_latency(EU_WAKEUP_LATENCY);
         this->trace.msg("Decrementing semaphore (semaphore: %d, coreId: %d, new_value: %d)\n", id, core);
       }
       else
@@ -1192,44 +1194,6 @@ vp::io_req_status_e Semaphore_unit::req(vp::io_req *req, uint64_t offset, bool i
       semaphore->set_value(semaphore->value +  *(uint32_t *)req->get_data());
       semaphore->trace_value.event((uint8_t *)&semaphore->value);
       this->trace.msg("Incrementing semaphore (semaphore: %d, core: %d, inc: %d, value: %d)\n", id, core, *(uint32_t *)req->get_data(), semaphore->value);
-
-      // The core is unlocking the semaphore, check if we have to wake-up someone
-      while (semaphore->value > 0 && semaphore->waiting_mask)
-      {
-        if (semaphore->waiting_mask & (1<<semaphore->elected_core))
-        {
-          // Clear the mask and wake-up the core.
-          this->trace.msg("Waking-up core waiting for semaphore (coreId: %d)\n", semaphore->elected_core);
-          vp::io_req *waiting_req = semaphore->waiting_reqs[semaphore->elected_core];
-
-          semaphore->waiting_mask &= ~(1<<semaphore->elected_core);
-          semaphore->trace_waiting_cores.event((uint8_t *)&semaphore->waiting_mask);
-
-          // Store the semaphore value into the pending request
-          // Don't reply now to the initiator, this will be done by the wakeup event
-          // to introduce some delays
-          if (!this->top->core_eu[semaphore->elected_core].interrupted_elw)
-          {
-            *(uint32_t *)waiting_req->get_data() = semaphore->value;
-          }
-          else
-          {
-            this->top->core_eu[semaphore->elected_core].interrupt_elw_value = semaphore->value;
-          }
-
-          // And trigger the event to the core
-          top->trigger_event(1<<semaphore_event, 1<<semaphore->elected_core); 
-
-          semaphore->set_value(semaphore->value - 1);
-          semaphore->trace_value.event((uint8_t *)&semaphore->value);
-        }
-
-        semaphore->elected_core++;
-        if (semaphore->elected_core == this->top->nb_core)
-        {
-          semaphore->elected_core = 0;
-        }
-      }
     }
   }
   else if (offset == EU_HW_SEM_LOAD_INC)
@@ -1240,6 +1204,45 @@ vp::io_req_status_e Semaphore_unit::req(vp::io_req *req, uint64_t offset, bool i
       semaphore->set_value(semaphore->value + 1);
       this->trace.msg("Incrementing semaphore (semaphore: %d, core: %d, value: %d)\n", id, core, semaphore->value);
       semaphore->trace_value.event((uint8_t *)&semaphore->value);
+      req->inc_latency(EU_WAKEUP_LATENCY);
+    }
+  }
+
+  // The core is unlocking the semaphore, check if we have to wake-up someone
+  while (semaphore->value > 0 && semaphore->waiting_mask)
+  {
+    if (semaphore->waiting_mask & (1<<semaphore->elected_core))
+    {
+      // Clear the mask and wake-up the core.
+      this->trace.msg("Waking-up core waiting for semaphore (coreId: %d)\n", semaphore->elected_core);
+      vp::io_req *waiting_req = semaphore->waiting_reqs[semaphore->elected_core];
+
+      semaphore->waiting_mask &= ~(1<<semaphore->elected_core);
+      semaphore->trace_waiting_cores.event((uint8_t *)&semaphore->waiting_mask);
+
+      // Store the semaphore value into the pending request
+      // Don't reply now to the initiator, this will be done by the wakeup event
+      // to introduce some delays
+      if (!this->top->core_eu[semaphore->elected_core].interrupted_elw)
+      {
+        *(uint32_t *)waiting_req->get_data() = semaphore->value;
+      }
+      else
+      {
+        this->top->core_eu[semaphore->elected_core].interrupt_elw_value = semaphore->value;
+      }
+
+      // And trigger the event to the core
+      top->trigger_event(1<<semaphore_event, 1<<semaphore->elected_core); 
+
+      semaphore->set_value(semaphore->value - 1);
+      semaphore->trace_value.event((uint8_t *)&semaphore->value);
+    }
+
+    semaphore->elected_core++;
+    if (semaphore->elected_core == this->top->nb_core)
+    {
+      semaphore->elected_core = 0;
     }
   }
 
@@ -1391,7 +1394,6 @@ vp::io_req_status_e Mutex_unit::req(vp::io_req *req, uint64_t offset, bool is_wr
   offset = offset - (id << 2);
   if (id >= nb_mutexes) return vp::IO_REQ_INVALID;
 
-  
   Mutex *mutex = &mutexes[id];
   Core_event_unit *evtUnit = &top->core_eu[core];
   top->trace.msg("Received mutex IO access (offset: 0x%x, mutex: %d, is_write: %d)\n", offset, id, is_write);
@@ -1400,6 +1402,8 @@ vp::io_req_status_e Mutex_unit::req(vp::io_req *req, uint64_t offset, bool is_wr
   {
     if (!mutex->locked)
     {
+      req->inc_latency(EU_WAKEUP_LATENCY);
+  
       // The mutex is free, just lock it
       top->trace.msg("Locking mutex (mutex: %d, coreId: %d)\n", id, core);
       mutex->locked = 1;

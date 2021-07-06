@@ -6,8 +6,6 @@
 #include <math.h>
 #include "CNN_BasicKernels_SQ8.h"
 
-#define NEAREST //Use nearest LUT element instead of linearly interpolate
-
 static int CoreCountDynamic = 1;
 static int ActiveCore = gap_ncore();
 
@@ -55,95 +53,6 @@ static inline void Zero(char *__restrict__ To, unsigned int Size, unsigned int C
 	if (Iter & 0x4) *((int *) (To + First + B_CLR(Iter, 3))) = 0;
 	if (Iter & 0x2) *((short int *) (To + First + B_CLR(Iter, 2))) = 0;
 	if (Iter & 0x1) *((signed char *) (To + First + Iter - 1)) = 0;
-}
-
-unsigned short int SIGMOID_LUT_uint16[256] = {
-    32768, 33451, 34133, 34813, 35493, 36169, 36843, 37513, 38180, 38841, 39498,
-    40149, 40794, 41432, 42064, 42688, 43304, 43912, 44511, 45102, 45683, 46255,
-    46817, 47369, 47911, 48443, 48964, 49475, 49975, 50464, 50942, 51409, 51865,
-    52311, 52745, 53169, 53581, 53983, 54374, 54755, 55125, 55485, 55834, 56174,
-    56503, 56823, 57133, 57433, 57724, 58007, 58280, 58544, 58800, 59048, 59288,
-    59519, 59743, 59959, 60168, 60370, 60565, 60753, 60935, 61110, 61279, 61441,
-    61599, 61750, 61896, 62036, 62172, 62302, 62428, 62549, 62666, 62778, 62886,
-    62990, 63090, 63186, 63279, 63368, 63454, 63536, 63615, 63691, 63765, 63835,
-    63903, 63968, 64030, 64090, 64148, 64204, 64257, 64308, 64357, 64405, 64450,
-    64494, 64536, 64576, 64614, 64652, 64687, 64721, 64754, 64786, 64816, 64845,
-    64873, 64900, 64926, 64950, 64974, 64997, 65019, 65039, 65060, 65079, 65097,
-    65115, 65132, 65149, 65164, 65179, 65194, 65208, 65221, 65234, 65246, 65258,
-    65269, 65280, 65291, 65301, 65310, 65319, 65328, 65337, 65345, 65352, 65360,
-    65367, 65374, 65381, 65387, 65393, 65399, 65404, 65410, 65415, 65420, 65425,
-    65429, 65433, 65438, 65442, 65445, 65449, 65453, 65456, 65459, 65462, 65465,
-    65468, 65471, 65474, 65476, 65479, 65481, 65483, 65485, 65488, 65489, 65491,
-    65493, 65495, 65497, 65498, 65500, 65501, 65503, 65504, 65505, 65507, 65508,
-    65509, 65510, 65511, 65512, 65513, 65514, 65515, 65516, 65517, 65517, 65518,
-    65519, 65520, 65520, 65521, 65522, 65522, 65523, 65523, 65524, 65524, 65525,
-    65525, 65526, 65526, 65526, 65527, 65527, 65528, 65528, 65528, 65529, 65529,
-    65529, 65529, 65530, 65530, 65530, 65530, 65531, 65531, 65531, 65531, 65531,
-    65532, 65532, 65532, 65532, 65532, 65532, 65533, 65533, 65533, 65533, 65533,
-    65533, 65533, 65533, 65534, 65534, 65534, 65534, 65534, 65534, 65534, 65534,
-    65534, 65534, 65535};
-
-
-int Sigmoid(int x){
-	/* Input x: Q12 [-8:8] range
-
-	   Output y = sig(x) -> Q15
-	*/
-#ifndef NEAREST
-	int result, ua, ub, ut;
-	int abs_x = (Abs(x) * 3) >> 9; // * 3/4 (*3 >>2) and clip it to [0:255] (>>7) ot be an index of the LUT
-	if (abs_x > 255) {
-		result = 0x1FFFC00; // result = 1 in Q25
-	} else {
-		ua = SIGMOID_LUT_uint16[abs_x];
-		ub = SIGMOID_LUT_uint16[abs_x+1];
-		ut = abs_x & 0xFF;
-		result = (ua << 9) + ut * (ub-ua); // LUT in Q16 * ut in Q9 = Q25
-	}
-	if (x>0) result = result;
-	else     result = (1<<25) - result;
-	return result >> 10;
-#else
-	int result;
-	int abs_x = (Abs(x) * 3) >> 9; // * 3/4 (*3 >>2) and clip it to [0:255] (>>7) ot be an index of the LUT
-	if (abs_x > 255) {
-		result = 0xFFFF; // result = 1 in Q16
-	} else {
-		result = SIGMOID_LUT_uint16[abs_x]; // LUT in Q16
-	}
-	if (x>0) result = result;
-	else     result = (1<<16) - result;
-	return result >> 1;
-#endif
-}
-
-int Tanh(int x){
-#ifndef NEAREST
-	int result, ua, ub, ut;
-	int abs_x = (Abs(x) * 3) >> 8; // 2*x
-	if (abs_x > 255) {
-	  result = 0xFFFF00;
-	} else {
-	  ua = SIGMOID_LUT_uint16[abs_x];
-	  ub = SIGMOID_LUT_uint16[abs_x+1];
-	  ut = abs_x & 0xFF;
-	  result = (ua << 8) + ut * (ub-ua);
-	}
-	if (x>0) result =  result - (1 << 23);
-	else     result = -result + (1 << 23);
-	return result >> 8; // back to 16 bits
-#else
-	int result;
-	int abs_x = (Abs(x) * 3) >> 8; // 2*x
-	if (abs_x > 255) {
-	  result = 0xFFFF;
-	} else {
-	  result = SIGMOID_LUT_uint16[abs_x];
-	}
-	if (x>0) result =  result - (1 << 15);
-	else     result = -result + (1 << 15);
-	return result; // back to 16 bits
-#endif
 }
 
 void RNN_ParKerB32_Hard_SameInStateScale_SQ8(KerRNN_SQ8_T *Arg)
@@ -202,7 +111,7 @@ void RNN_ParKerB32_Hard_SameInStateScale_SQ8(KerRNN_SQ8_T *Arg)
 		if (Nin & 0x4) Of = gap_sumdotp4(Vin[Nin/4-1], Vf[Nin/4-1], Of);
 		for (int i=(Nin/4)*4; i<Nin; i++) {
 			int X = ((char *)Vin)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
 		}
 
 		/* Of = HTanh(Scaled(Of)) */
@@ -274,7 +183,7 @@ void RNN_ParKerB32_Hard_SQ8(KerRNN_SQ8_T *Arg)
 		if (DimState & 0x4) Of = gap_sumdotp4(Vin[DimState/4-1], Vf[DimState/4-1], Of);
 		for (int i=(DimState/4)*4; i<DimState; i++) {
 			int X = ((char *)Vin)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
 		}
 		Vf = (v4s *) ((char *)Vf + DimState);
 		if (Xin) {
@@ -288,7 +197,7 @@ void RNN_ParKerB32_Hard_SQ8(KerRNN_SQ8_T *Arg)
 			if (DimIn & 0x4) Of = gap_sumdotp4(Vin[DimIn/4-1], Vf[DimIn/4-1], Of);
 			for (int i=(DimIn/4)*4; i<DimIn; i++) {
 				int X = ((char *)Vin)[Off+i];
-				Of_in += X * ((char *)Vf)[Off+i];
+				Of_in += X * ((signed char *)Vf)[Off+i];
 			}
 			Of += AT_SCALE(Of_in, ((unsigned char *)Infos)[RNN_F_IN_SCALE], ((unsigned char *)Infos)[RNN_F_IN_SCALEN]);
 			Vf = (v4s *) ((char *)Vf + DimIn);
@@ -362,7 +271,7 @@ void RNN_ParKerB32_SameInStateScale_SQ8(KerRNN_SQ8_T *Arg)
 		if (Nin & 0x4) Of = gap_sumdotp4(Vin[Nin/4-1], Vf[Nin/4-1], Of);
 		for (int i=(Nin/4)*4; i<Nin; i++) {
 			int X = ((char *)Vin)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
 		}
 
 		/* Of = Tanh(Scaled(Of)) */
@@ -436,7 +345,7 @@ void RNN_ParKerB32_SQ8(KerRNN_SQ8_T *Arg)
 		if (DimState & 0x4) Of = gap_sumdotp4(Vin[DimState/4-1], Vf[DimState/4-1], Of);
 		for (int i=(DimState/4)*4; i<DimState; i++) {
 			int X = ((char *)Vin)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
 		}
 		Vf = (v4s *) ((char *)Vf + DimState);
 		if (Xin) {
@@ -450,7 +359,7 @@ void RNN_ParKerB32_SQ8(KerRNN_SQ8_T *Arg)
 			if (DimIn & 0x4) Of = gap_sumdotp4(Vin[DimIn/4-1], Vf[DimIn/4-1], Of);
 			for (int i=(DimIn/4)*4; i<DimIn; i++) {
 				int X = ((char *)Vin)[Off+i];
-				Of_in += X * ((char *)Vf)[Off+i];
+				Of_in += X * ((signed char *)Vf)[Off+i];
 			}
 			Of += AT_SCALE(Of_in, ((unsigned char *)Infos)[RNN_F_IN_SCALE], ((unsigned char *)Infos)[RNN_F_IN_SCALEN]);
 			Vf = (v4s *) ((char *)Vf + DimIn);
@@ -540,10 +449,10 @@ void LSTM_ParKerB32_Hard_SQ8(KerLSTM_SQ8_T *Arg)
 		}
 		for (int i=(DimState/4)*4; i<DimState; i++) {
 			int X = ((char *)Vstate)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
-			Oi += X * ((char *)Vi)[Off+i];
-			Og += X * ((char *)Vg)[Off+i];
-			Oo += X * ((char *)Vo)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
+			Oi += X * ((signed char *)Vi)[Off+i];
+			Og += X * ((signed char *)Vg)[Off+i];
+			Oo += X * ((signed char *)Vo)[Off+i];
 		}
 		Vf = (v4s *) ((char *)Vf + DimState);
 		Vi = (v4s *) ((char *)Vi + DimState);
@@ -562,10 +471,10 @@ void LSTM_ParKerB32_Hard_SQ8(KerLSTM_SQ8_T *Arg)
 			}
 			for (int i=(DimIn/4)*4; i<DimIn; i++) {
 				int X = ((char *)Vin)[Off_in+i];
-				Of_in += X * ((char *)Vf)[Off_in+i];
-				Oi_in += X * ((char *)Vi)[Off_in+i];
-				Og_in += X * ((char *)Vg)[Off_in+i];
-				Oo_in += X * ((char *)Vo)[Off_in+i];
+				Of_in += X * ((signed char *)Vf)[Off_in+i];
+				Oi_in += X * ((signed char *)Vi)[Off_in+i];
+				Og_in += X * ((signed char *)Vg)[Off_in+i];
+				Oo_in += X * ((signed char *)Vo)[Off_in+i];
 			}
 			// Rescale Ox_in into Ox Scale and sum --> Infos[LSTM_X_IN_SCALE/N] = Sin / Sin_state
 			// Ox = Ox + Sin/Sin_state * Of_in
@@ -688,10 +597,10 @@ void LSTM_ParKerB32_Hard_SameInStateScale_SQ8(KerLSTM_SQ8_T *Arg)
 		}
 		for (int i=(Nin/4)*4; i<Nin; i++) {
 			int X = ((char *)Vin)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
-			Oi += X * ((char *)Vi)[Off+i];
-			Og += X * ((char *)Vg)[Off+i];
-			Oo += X * ((char *)Vo)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
+			Oi += X * ((signed char *)Vi)[Off+i];
+			Og += X * ((signed char *)Vg)[Off+i];
+			Oo += X * ((signed char *)Vo)[Off+i];
 		}
 		Vf = (v4s *) ((char *)Vf + NS);
 		Vi = (v4s *) ((char *)Vi + NS);
@@ -807,11 +716,11 @@ void LSTM_ParKerB32_SameInStateScale_SQ8(KerLSTM_SQ8_T *Arg)
 			Oo = gap_sumdotp4(X, Vo[i], Oo);
 		}
 		for (int i=(Nin/4)*4; i<Nin; i++) {
-			int X = ((char *)Vin)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
-			Oi += X * ((char *)Vi)[Off+i];
-			Og += X * ((char *)Vg)[Off+i];
-			Oo += X * ((char *)Vo)[Off+i];
+			int X = ((signed char *)Vin)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
+			Oi += X * ((signed char *)Vi)[Off+i];
+			Og += X * ((signed char *)Vg)[Off+i];
+			Oo += X * ((signed char *)Vo)[Off+i];
 		}
 		Vf = (v4s *) ((char *)Vf + NS);
 		Vi = (v4s *) ((char *)Vi + NS);
@@ -839,7 +748,7 @@ void LSTM_ParKerB32_SameInStateScale_SQ8(KerLSTM_SQ8_T *Arg)
 
 		int X1 = AT_SCALE(State[TileOff+o] * Of, ((unsigned char *)Infos)[LSTM_CIN_SCALE], ((unsigned char *)Infos)[LSTM_CIN_SCALEN]);
 		/* X1 = c_state = c_state*Of + Oi*Og */
-		X1 = (int) X1 + ((Oi * Og) >> 15+3);
+		X1 = (int) X1 + ((Oi * Og) >> (15+3));
 		
 		/* Write c_state */
 		if (StateInOut) StateInOut[TileOff+o] = gap_clip(AT_SCALE(X1, ((unsigned char *)Infos)[LSTM_COUT_SCALE], ((unsigned char *)Infos)[LSTM_COUT_SCALEN]), 7);
@@ -928,10 +837,10 @@ void LSTM_ParKerB32_SQ8(KerLSTM_SQ8_T *Arg)
 		}
 		for (int i=(DimState/4)*4; i<DimState; i++) {
 			int X = ((char *)Vstate)[Off+i];
-			Of += X * ((char *)Vf)[Off+i];
-			Oi += X * ((char *)Vi)[Off+i];
-			Og += X * ((char *)Vg)[Off+i];
-			Oo += X * ((char *)Vo)[Off+i];
+			Of += X * ((signed char *)Vf)[Off+i];
+			Oi += X * ((signed char *)Vi)[Off+i];
+			Og += X * ((signed char *)Vg)[Off+i];
+			Oo += X * ((signed char *)Vo)[Off+i];
 		}
 		Vf = (v4s *) ((char *)Vf + DimState);
 		Vi = (v4s *) ((char *)Vi + DimState);
@@ -950,10 +859,10 @@ void LSTM_ParKerB32_SQ8(KerLSTM_SQ8_T *Arg)
 			}
 			for (int i=(DimIn/4)*4; i<DimIn; i++) {
 				int X = ((char *)Vin)[Off_in+i];
-				Of_in += X * ((char *)Vf)[Off_in+i];
-				Oi_in += X * ((char *)Vi)[Off_in+i];
-				Og_in += X * ((char *)Vg)[Off_in+i];
-				Oo_in += X * ((char *)Vo)[Off_in+i];
+				Of_in += X * ((signed char *)Vf)[Off_in+i];
+				Oi_in += X * ((signed char *)Vi)[Off_in+i];
+				Og_in += X * ((signed char *)Vg)[Off_in+i];
+				Oo_in += X * ((signed char *)Vo)[Off_in+i];
 			}
 			// Rescale Ox_in into Ox Scale and sum --> Infos[LSTM_X_IN_SCALE/N] = Sin / Sin_state
 			// Ox = Ox + Sin/Sin_state * Of_in
@@ -988,7 +897,7 @@ void LSTM_ParKerB32_SQ8(KerLSTM_SQ8_T *Arg)
 
 		int X1 = AT_SCALE(State[TileOff+o] * Of, ((unsigned char *)Infos)[LSTM_CIN_SCALE], ((unsigned char *)Infos)[LSTM_CIN_SCALEN]);
 		/* X1 = c_state = c_state*Of + Oi*Og */
-		X1 = (int) X1 + ((Oi * Og) >> 15+3);
+		X1 = (int) X1 + ((Oi * Og) >> (15+3));
 		
 		/* Write c_state */
 		if (StateInOut) StateInOut[TileOff+o] = gap_clip(AT_SCALE(X1, ((unsigned char *)Infos)[LSTM_COUT_SCALE], ((unsigned char *)Infos)[LSTM_COUT_SCALEN]), 7);
@@ -1030,8 +939,8 @@ void GRU_ParKerB32_SQ8(KerGRU_SQ8_T *Arg)
         signed char *__restrict__ Wz = Arg->Wz;
         int * __restrict__ Bz = Arg->Bz;
         signed char *__restrict__ Wh = Arg->Wh;
-        int * __restrict__ Bh = Arg->Bh;
-        signed char *__restrict__ Sbuff = Arg->Sbuff;
+        int * __restrict__ Bwh = Arg->Bwh;
+        int * __restrict__ Brh = Arg->Brh;
         signed char *__restrict__ Hout = Arg->Hout;
         unsigned short int Nout = Arg->Nout;
         signed char *__restrict__ Infos = Arg->Infos;
@@ -1046,82 +955,223 @@ void GRU_ParKerB32_SQ8(KerGRU_SQ8_T *Arg)
 	unsigned int Last  = Min(First+ChunkCell, Nout);
 
 	if (Arg->FirstOut) {
-		if (Arg->FirstCell && Arg->Reset) Zero(State, DimState, CoreId);
-		else Copy(State, StateInOut, DimState, CoreId);
+		if (Arg->FirstCell && Arg->Reset) Zero(State, DimState, CoreId); // Reset h_state -> 0s
+		else Copy(State, StateInOut, DimState, CoreId);                  // Copy h_state into State
 		gap_waitbarrier(0);
 	}
-        if (Xin) {
-                Copy(State+DimState, Xin, DimIn, CoreId);
-                gap_waitbarrier(0);
-	} else Nin -= DimIn;
-	int Off = Nin/4;
-	/* Fisrt eval Sbuff<DimState> = HSigmoid(NLP(StateInOut<DimState+DimIn>, Wr<DimState+DimIn>, Br<DimState>)) !*! StateInOut<DimState>
-	   !*! is Hadammard product (elemt wise product)
-	   Actual dimension of Sbuff is <DimState+DimIn>
-	   Previous step has copied StateInOut into the DimIn last items of Sbuff
-	*/
-	v4s *Vin = (v4s *) State;
-	v4s *Vr  = (v4s *) (Wr+Nin*First);
-	for (int o=First; o<Last; o++) {
-		int Or = Br[o];
-		for (int i=0; i<Nin/8; i++) {
-			v4s X0 = Vin[2*i], X1 = Vin[2*i+1];
-			v4s Y0 = Vr[2*i], Y1 = Vr[2*i+1];
-			Or = gap_sumdotp4(X0, Y0, Or);
-			Or = gap_sumdotp4(X1, Y1, Or);
-		}
-		if (Nin & 0x4) Or= gap_sumdotp4(Vin[Nin/4], Vr[Nin/4], Or);
-		for (int i=(Nin/4)*4; i<Nin; i++) {
-			int X = ((char *)Vin)[Off+i];
-			Or += X * ((char *)Vr)[Off+i];
-		}
-		/* Or = HSigmoid(Scaled(Or)) !*! StateInOut[o] */
-		Or = gap_clip(AT_SCALE(Or, ((unsigned char *)Infos)[GRU_R_SCALE], ((unsigned char *)Infos)[GRU_R_SCALEN]), 7);
-		Or = AT_SCALE(AT_CLIP_POS(Or + Infos[GRU_R_B0], Infos[GRU_R_A0]) * Infos[GRU_R_C0] * StateInOut[TileOff+o], ((unsigned char *)Infos)[GRU_R_ASCALE], ((unsigned char *)Infos)[GRU_R_ASCALEN]);
-		Sbuff[TileOff+o] = Or;
-		Vr = (v4s *) ((char *)Vr + NS);
-		if (PerChannelQuant) Infos += RNN_CELL_INFOS;
-	}
-	gap_waitbarrier(0);
 
-	/* Now eval the rest:
-	 	Zt  = HSigmoid(NLP(StateInOut<DimState+DimIn>, Wz<DimState+DimIn>, Bz<DimState>))
-		Ht' = HTanh(NLP(Sbuff<DimState+DimIn>, Wh<DimState+DimIn>, Bh<DimState>))
-		Ht  = (1-Zt) !*! Ht'  +  Zt !*! Ht'
-	*/
-	if (PerChannelQuant) Infos = Arg->Infos;
-	Vr = (v4s *) Sbuff;
-	v4s *Vz = (v4s *) (Wz+Nin*First);
-	v4s *Vh = (v4s *) (Wh+Nin*First);
+	// Offsets for leftovers
+	int Off_in = 0;
+	if (Xin) Off_in = DimIn/4; else Nin -= DimIn;
+	int Off = DimState/4;
+
+	v4s *Vstate = (v4s *) State;
+	v4s *Vin    = (v4s *) Xin;
+	v4s *Vr     = (v4s *) (Wr+Nin*First);
+	v4s *Vz     = (v4s *) (Wz+Nin*First);
+	v4s *Vh     = (v4s *) (Wh+Nin*First);
 	for (int o=First; o<Last; o++) {
-		int Oz = Bz[o], Oh = Bh[o];
-		for (int i=0; i<Nin/4; i++) {
-			v4s X0 = Vin[i], Z0 = Vz[i], V0 = Vh[i], R0 = Vr[i];
+		int Or = Br[o], Oz = Bz[o], Oh = Brh[o];
+		for (int i=0; i<DimState/4; i++) {
+			v4s X0 = Vstate[i];
+			v4s R0 = Vr[i];
+			v4s Z0 = Vz[i];
+			v4s H0 = Vh[i];
+			Or = gap_sumdotp4(X0, R0, Or);
 			Oz = gap_sumdotp4(X0, Z0, Oz);
-			Oh = gap_sumdotp4(R0, V0, Oh);
+			Oh = gap_sumdotp4(X0, H0, Oh);
 		}
-		for (int i=(Nin/4)*4; i<Nin; i++) {
-			int X = ((char *)Vin)[Off+i], R = ((char *)Vr)[Off+i];
-			Oz += X * ((char *)Vz)[Off+i];
-			Oh += R * ((char *)Vh)[Off+i];
+		for (int i=(DimState/4)*4; i<DimState; i++) {
+			int X = ((signed char *)Vstate)[Off+i];
+			Or += X * ((signed char *)Vr)[Off+i];
+			Oz += X * ((signed char *)Vz)[Off+i];
+			Oh += X * ((signed char *)Vh)[Off+i];
 		}
-		/* Oz = HSigmoid(Scaled(Oz)) */
-		Oz = AT_SCALE(Oz, ((unsigned char *)Infos)[GRU_Z_SCALE], ((unsigned char *)Infos)[GRU_Z_SCALEN]);
-		Oz = AT_CLIP_POS(Oz + Infos[GRU_Z_B0], Infos[GRU_Z_A0]) * Infos[GRU_Z_C0];
+		Vr = (v4s *) ((signed char *)Vr + DimState);
+		Vz = (v4s *) ((signed char *)Vz + DimState);
+		Vh = (v4s *) ((signed char *)Vh + DimState);
+		int Oh_in = Bwh[o];
+		if (Xin) {
+			int Or_in = 0, Oz_in = 0;
+			for (int i=0; i<DimIn/4; i++) {
+				v4s X0 = Vin[i];
+				v4s R0 = Vr[i];
+				v4s Z0 = Vz[i];
+				v4s H0 = Vh[i];
+				Or_in = gap_sumdotp4(X0, R0, Or_in);
+				Oz_in = gap_sumdotp4(X0, Z0, Oz_in);
+				Oh_in = gap_sumdotp4(X0, H0, Oh_in);
+			}
+			for (int i=(DimIn/4)*4; i<DimIn; i++) {
+				int X = ((signed char *)Vin)[Off_in+i];
+				Or_in += X * ((signed char *)Vr)[Off_in+i];
+				Oz_in += X * ((signed char *)Vz)[Off_in+i];
+				Oh_in += X * ((signed char *)Vh)[Off_in+i];
+			}
+			Or += AT_SCALE(Or_in, ((unsigned char *)Infos)[GRU_R_IN_SCALE], ((unsigned char *)Infos)[GRU_R_IN_SCALEN]);
+			Oz += AT_SCALE(Oz_in, ((unsigned char *)Infos)[GRU_Z_IN_SCALE], ((unsigned char *)Infos)[GRU_Z_IN_SCALEN]);
+			Vr = (v4s *) ((signed char *)Vr + DimIn);
+			Vz = (v4s *) ((signed char *)Vz + DimIn);
+			Vh = (v4s *) ((signed char *)Vh + DimIn);
+		}
 
-		/* Oht = HTanh(Scaled(Oh)) */
-		int Oht = AT_SCALE(Oh, ((unsigned char *)Infos)[GRU_HT_SCALE], ((unsigned char *)Infos)[GRU_HT_SCALEN]);
-		Oht = Max(Infos[GRU_HT_A0], Min(Infos[GRU_HT_B0], Oht));
+		/* Scale to internal_qtype --> 16bits QY */
+		Or = AT_SCALE(Or, ((unsigned char *)Infos)[GRU_R_INT_SCALE], ((unsigned char *)Infos)[GRU_R_INT_SCALEN]);
+		/* Or = Sigmoid(internal_scaled(Or)) */
+		Or = Sigmoid(Or);
+		/* Q15 -> Q12 */
+		Or = AT_NORM(Or, 3);
 
-		/* Oh = Scaled((1-Oz)*StateInOut[o] + Oz*Oht) */
-		Oh = gap_clip(AT_SCALE((Infos[GRU_H_A0] - Oz)*StateInOut[TileOff+o] + Oz*Oht, ((unsigned char *)Infos)[GRU_H_SCALE], ((unsigned char *)Infos)[GRU_H_SCALEN]), 7);
+		/* Scale to internal_qtype --> 16bits QY */
+		Oz = AT_SCALE(Oz, ((unsigned char *)Infos)[GRU_Z_INT_SCALE], ((unsigned char *)Infos)[GRU_Z_INT_SCALEN]);
+		/* Oz = Sigmoid(internal_scaled(Oz)) */
+		Oz = Sigmoid(Oz);
+		/* Q15 -> Q12 */
+		Oz = AT_NORM(Oz, 3);
 
+		Oh = AT_NORM(Oh*Or, 12) + AT_SCALE(Oh_in, ((unsigned char *)Infos)[GRU_HT_IN_SCALE], ((unsigned char *)Infos)[GRU_HT_IN_SCALEN]);
+
+		Oh = AT_SCALE(Oh, ((unsigned char *)Infos)[GRU_H_INT_SCALE], ((unsigned char *)Infos)[GRU_H_INT_SCALEN]);
+		Oh = Tanh(Oh);
+		Oh = AT_NORM(Oh, 3);
+
+		int CurrStateQ12 = State[TileOff+o] << 5;
+		/* h_t = (1 - Oz) * Oh + Oz * h_t-1 */
+		/* Oz->Q12 * Oh->Q12 --> Q24 */
+		/* h_t -> Q7 --> >> (24 - 7) */
+		Oh = gap_clip(AT_NORM(((1 << 12) - Oz) * Oh + Oz * CurrStateQ12, 17), 7);
 		if (StateInOut) StateInOut[TileOff+o] = Oh;
 		if (Hout) Hout[o] = Oh;
+		if (PerChannelQuant) Infos += GRU_CELL_INFOS;
+	}
+	gap_waitbarrier(0);
+}
 
-		Vz = (v4s *) ((char *)Vz + NS);
-		Vh = (v4s *) ((char *)Vh + NS);
-		if (PerChannelQuant) Infos += RNN_CELL_INFOS;
+void GRU_ParKerB32_Hard_SQ8(KerGRU_SQ8_T *Arg)
+
+{
+
+	/*	Sequences
+	 	In:	DimIn!=0, Hout==0
+		InOut:	DimIn!=0, Hout!=0
+		None:	DimIn==0, Hout==0
+		Out:	DimIn==0, Hout!=0
+
+		Infos:
+		if (PerChannelQuant) Infos group for each output elemt (Nout) else one group for all out
+	*/
+	int PerChannelQuant = 0;
+	signed char *__restrict__ StateInOut = Arg->StateInOut;
+	signed char *__restrict__ State = Arg->State;
+        signed char *__restrict__ Xin= Arg->Xin;
+        unsigned int DimState = Arg->DimState;
+        unsigned int DimIn = Arg->DimIn;
+        signed char *__restrict__ Wr = Arg->Wr;
+        int * __restrict__ Br = Arg->Br;
+        signed char *__restrict__ Wz = Arg->Wz;
+        int * __restrict__ Bz = Arg->Bz;
+        signed char *__restrict__ Wh = Arg->Wh;
+        int * __restrict__ Bwh = Arg->Bwh;
+        int * __restrict__ Brh = Arg->Brh;
+        signed char *__restrict__ Hout = Arg->Hout;
+        unsigned short int Nout = Arg->Nout;
+        signed char *__restrict__ Infos = Arg->Infos;
+        int TileOff = Arg->TileOffset;
+
+	unsigned int Nin = DimState+DimIn;
+	unsigned int NS = Nin;
+
+	unsigned int CoreId = gap_coreid();
+	unsigned int ChunkCell = ChunkSize(Nout);
+	unsigned int First = CoreId*ChunkCell;
+	unsigned int Last  = Min(First+ChunkCell, Nout);
+
+	if (Arg->FirstOut) {
+		if (Arg->FirstCell && Arg->Reset) Zero(State, DimState, CoreId); // Reset h_state -> 0s
+		else Copy(State, StateInOut, DimState, CoreId);                  // Copy h_state into State
+		gap_waitbarrier(0);
+	}
+
+	// Offsets for leftovers
+	int Off_in = 0;
+	if (Xin) Off_in = DimIn/4; else Nin -= DimIn;
+	int Off = DimState/4;
+
+	v4s *Vstate = (v4s *) State;
+	v4s *Vin    = (v4s *) Xin;
+	v4s *Vr     = (v4s *) (Wr+Nin*First);
+	v4s *Vz     = (v4s *) (Wz+Nin*First);
+	v4s *Vh     = (v4s *) (Wh+Nin*First);
+	for (int o=First; o<Last; o++) {
+		int Or = Br[o], Oz = Bz[o], Oh = Brh[o];
+		for (int i=0; i<DimState/4; i++) {
+			v4s X0 = Vstate[i];
+			v4s R0 = Vr[i];
+			v4s Z0 = Vz[i];
+			v4s H0 = Vh[i];
+			Or = gap_sumdotp4(X0, R0, Or);
+			Oz = gap_sumdotp4(X0, Z0, Oz);
+			Oh = gap_sumdotp4(X0, H0, Oh);
+		}
+		for (int i=(DimState/4)*4; i<DimState; i++) {
+			int X = ((signed char *)Vstate)[Off+i];
+			Or += X * ((signed char *)Vr)[Off+i];
+			Oz += X * ((signed char *)Vz)[Off+i];
+			Oh += X * ((signed char *)Vh)[Off+i];
+		}
+		Vr = (v4s *) ((signed char *)Vr + DimState);
+		Vz = (v4s *) ((signed char *)Vz + DimState);
+		Vh = (v4s *) ((char *)Vh + DimState);
+
+		int Oh_in = Bwh[o];
+		if (Xin) {
+			int Or_in = 0, Oz_in = 0;
+			for (int i=0; i<DimIn/4; i++) {
+				v4s X0 = Vin[i];
+				v4s R0 = Vr[i];
+				v4s Z0 = Vz[i];
+				v4s H0 = Vh[i];
+				Or_in = gap_sumdotp4(X0, R0, Or_in);
+				Oz_in = gap_sumdotp4(X0, Z0, Oz_in);
+				Oh_in = gap_sumdotp4(X0, H0, Oh_in);
+			}
+			for (int i=(DimIn/4)*4; i<DimIn; i++) {
+				int X = ((signed char *)Vin)[Off_in+i];
+				Or_in += X * ((signed char *)Vr)[Off_in+i];
+				Oz_in += X * ((signed char *)Vz)[Off_in+i];
+				Oh_in += X * ((signed char *)Vh)[Off_in+i];
+			}
+			Or += AT_SCALE(Or_in, ((unsigned char *)Infos)[GRU_R_IN_SCALE], ((unsigned char *)Infos)[GRU_R_IN_SCALEN]);
+			Oz += AT_SCALE(Oz_in, ((unsigned char *)Infos)[GRU_Z_IN_SCALE], ((unsigned char *)Infos)[GRU_Z_IN_SCALEN]);
+			Vr = (v4s *) ((signed char *)Vr + DimIn);
+			Vz = (v4s *) ((signed char *)Vz + DimIn);
+			Vh = (v4s *) ((signed char *)Vh + DimIn);
+		}
+
+		/* Scale to internal_qtype --> 16bits QY */
+		Or = AT_SCALE(Or, ((unsigned char *)Infos)[GRU_R_INT_SCALE], ((unsigned char *)Infos)[GRU_R_INT_SCALEN]);
+		/* Or = HSigmoid(internal_scaled(Or)) */
+		Or = AT_NORM(AT_CLIP_POS(Or + *(short *)&Infos[GRU_INT_B0], *((short *)&Infos[GRU_INT_A0])) * *((short *)&Infos[GRU_INT_C0]), ((unsigned char *)Infos)[GRU_INT_Q]);
+
+		/* Scale to internal_qtype --> 16bits QY */
+		Oz = AT_SCALE(Oz, ((unsigned char *)Infos)[GRU_Z_INT_SCALE], ((unsigned char *)Infos)[GRU_Z_INT_SCALEN]);
+		/* Oz = HSigmoid(internal_scaled(Oz)) */
+		Oz = AT_NORM(AT_CLIP_POS(Oz + *(short *)&Infos[GRU_INT_B0], *((short *)&Infos[GRU_INT_A0])) * *((short *)&Infos[GRU_INT_C0]), ((unsigned char *)Infos)[GRU_INT_Q]);
+
+		Oh = AT_NORM(Oh*Or, 12) + AT_SCALE(Oh_in, ((unsigned char *)Infos)[GRU_HT_IN_SCALE], ((unsigned char *)Infos)[GRU_HT_IN_SCALEN]);
+		Oh = AT_SCALE(Oh, ((unsigned char *)Infos)[GRU_H_INT_SCALE], ((unsigned char *)Infos)[GRU_H_INT_SCALEN]);
+		/* X1 = HTanh(X1) */
+		int one = 1 << ((unsigned char *)Infos)[GRU_INT_Q];
+		Oh = Max(-one, Min(one, Oh));
+
+		int CurrStateQ12 = State[TileOff+o] << 5;
+		/* h_t = (1 - Oz) * Oh + Oz * h_t-1 */
+		/* Oz->Q12 * Oh->Q12 --> Q24 */
+		/* h_t -> Q7 --> >> (24 - 7) */
+		Oh = gap_clip(AT_NORM(((1 << 12) - Oz) * Oh + Oz * CurrStateQ12, 17), 7);
+		if (StateInOut) StateInOut[TileOff+o] = Oh;
+		if (Hout) Hout[o] = Oh;
+		if (PerChannelQuant) Infos += GRU_CELL_INFOS;
 	}
 	gap_waitbarrier(0);
 }

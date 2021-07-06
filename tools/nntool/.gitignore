@@ -1,5 +1,5 @@
-build
-flatbuffers
+build/
+flatbuffers/
 *.xlsx
 *.xls
 __pycache__
@@ -9,3 +9,9 @@ __pycache__
 sample_project/version.log
 .orig
 TestKernels.*
+home/
+tmp/
+importer/tflite
+.env
+gsync
+tempdir/

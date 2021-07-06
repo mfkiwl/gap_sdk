@@ -23,16 +23,17 @@
 
 import numpy as np
 
-from quantization.qtype_base import QTypeBase
+from quantization.qtype import QType
 
 
 class ConstantInfo():
     FMT_TYPES = {
         'float': 0,
-        'fixed': 1
+        'fixed': 1,
     }
 
-    def __init__(self, file_name: str, qtype: QTypeBase, numeric_format: str = "fixed", is_binary: bool = True, contents: np.ndarray = None):
+    def __init__(self, file_name: str, qtype: QType, numeric_format: str = "fixed",
+                 is_binary: bool = True, contents: np.ndarray = None):
         self._file_name = file_name
         self._qtype = qtype
         assert numeric_format in self.FMT_TYPES, "invalid numeric format"
@@ -59,5 +60,5 @@ class ConstantInfo():
     def __str__(self):
         return 'ConstInfo("{0}", {1}, 1, {2}, {3})'.format(self._file_name,
                                                            self.FMT_TYPES[self._numeric_format],
-                                                           self._qtype.bits//8,
+                                                           self._qtype.bits,
                                                            self._qtype.q)

@@ -2,7 +2,6 @@
 #pragma GCC diagnostic ignored "-Wextra"
 #pragma GCC diagnostic ignored "-Wpointer-sign"
 #pragma GCC diagnostic ignored "-Wsign-compare"
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 /*
  * Copyright (C) 2020 GreenWaves Technologies
  * All rights reserved.
@@ -100,7 +99,7 @@ void Ker_SSD_Init(Ker_SSD_Init_ArgT  *KerArg0 )
 {    
     // Initialize the output bounding boxes
     *(KerArg0->bbox_idx) = 0;
-    bbox_t * bbox = KerArg0->bbox_out;
+    bbox_t * bbox = KerArg0->bbox_buf;
     int n_max_bb  = KerArg0->n_max_bb;
     for (int i=0; i<n_max_bb; i++){
         bbox[i].score = 0;
@@ -121,7 +120,7 @@ void Ker_SSD_Decoder(Ker_SSD_Decoder_ArgT  *KerArg0 )
     unsigned int Chunk  = ChunkSize(KerArg0->H);
     unsigned int First  = CoreId*Chunk;
     unsigned int Last   = (First+Chunk > KerArg0->H) ? (KerArg0->H) : (First+Chunk);
-    bbox_t * bbox       = KerArg0->bbox_out;
+    bbox_t * bbox       = KerArg0->bbox_buf;
     int8_t * scores     = KerArg0->classes_in;
     int initial_idx     = KerArg0->bbox_idx[0];
     int num_classes     = KerArg0->Class_W;
@@ -144,7 +143,7 @@ void Ker_SSD_Decoder(Ker_SSD_Decoder_ArgT  *KerArg0 )
                 if(bbn - initial_idx >= n_max_bb){ // check if we reched n_max_bb
                     KerArg0->bbox_idx[0]--;
                     CL_CRITICAL_EXIT();
-                    return;
+                    goto exit_double_for;
                 }
                 CL_CRITICAL_EXIT();
                 // Valid BBOX --> alive
@@ -178,11 +177,12 @@ void Ker_SSD_Decoder(Ker_SSD_Decoder_ArgT  *KerArg0 )
             }
     	}
     }
+    exit_double_for:
     gap_waitbarrier(0);
     if (CoreId == 0) KerArg0->bbox_idx[0]--;
 }
 
-int16_t ioveru( short a_x, short a_y, short a_w, short a_h,
+static int16_t KerIoverU( short a_x, short a_y, short a_w, short a_h,
                 short b_x, short b_y, short b_w, short b_h, float Thr ){
 
     int intersect, runion;
@@ -206,7 +206,7 @@ int16_t ioveru( short a_x, short a_y, short a_w, short a_h,
 }
 
 
-void non_max_suppress(bbox_t * boundbxs, float iouThres, int nnbb){
+static void KerNonMaxSuppress(bbox_t * boundbxs, float iouThres, int nnbb){
     //BBOX value are in Q14 and non_max_threshold in Q14
     int idx, idx_int;
     //Non-max supression
@@ -219,7 +219,7 @@ void non_max_suppress(bbox_t * boundbxs, float iouThres, int nnbb){
             if((boundbxs[idx_int].alive==0 || idx_int==idx) || (boundbxs[idx_int].class != boundbxs[idx].class))
                 continue;
             //check the intersection between rects
-            int iou = ioveru(boundbxs[idx].x,boundbxs[idx].y,boundbxs[idx].w,boundbxs[idx].h,
+            int iou = KerIoverU(boundbxs[idx].x,boundbxs[idx].y,boundbxs[idx].w,boundbxs[idx].h,
                              boundbxs[idx_int].x,boundbxs[idx_int].y,boundbxs[idx_int].w,boundbxs[idx_int].h, iouThres);
             if(iou){ //is non-max
                 //supress the one that has lower score that is alway the internal index, since the input is sorted
@@ -272,7 +272,8 @@ void Ker_SSD_NMS(Ker_SSD_NMS_ArgT  *KerArg0 )
     int16_t bbox_idx_max = *(KerArg0->bbox_idx);
     int16_t bbox_max     = KerArg0->n_max_bb;
     int max_detections   = KerArg0->infos[2];
-    bbox_t * bbox        = KerArg0->bbox_out;
+    bbox_t * bbox        = KerArg0->bbox_buf;
+    bbox_t * out_bbox    = KerArg0->bbox_out;
     float non_max_thres  = FIX2FP((int) KerArg0->infos[0], 7);
     bbox_t temp;
 
@@ -295,7 +296,7 @@ void Ker_SSD_NMS(Ker_SSD_NMS_ArgT  *KerArg0 )
     //To test algo with sample boxes
     bbox_t test_bbx[4];
     init_test(test_bbx);
-    non_max_suppress(test_bbx,(int16_t)KerArg0->infos[0]<<7,4);
+    KerNonMaxSuppress(test_bbx,(int16_t)KerArg0->infos[0]<<7,4);
     int bbn=0;
     for(int bbn=0; bbn<4;bbn++){
         if(test_bbx[bbn].alive==1){
@@ -306,10 +307,11 @@ void Ker_SSD_NMS(Ker_SSD_NMS_ArgT  *KerArg0 )
     #endif
 
     //Suppressing double detections
-    non_max_suppress(bbox, non_max_thres, bbox_idx_max);
+    KerNonMaxSuppress(bbox, non_max_thres, bbox_idx_max);
 
     //Applying max output from TFLITE
     for(int i=0; i<bbox_max; i++){
+        out_bbox[i] = bbox[i];
         if  (bbox[i].alive==1 && max_detections) max_detections--;
         else bbox[i].alive=0;
     }

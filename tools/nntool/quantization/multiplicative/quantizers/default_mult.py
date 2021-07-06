@@ -13,20 +13,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from quantization.multiplicative.mult_quantization import \
-    MultQuantizationRecord
-from quantization.multiplicative.symmetric.symmetric_mult_qtype import \
-    SymmetricMultQType
-from quantization.quantization_handler import params_type
+import logging
+
+import numpy as np
+from quantization.qtype_constraint import MatchAll
+from quantization.quantizers.no_change_mixin import NoChangeMixin
+from quantization.unified_quantization_handler import (in_qs_constraint,
+                                                       out_qs_constraint,
+                                                       params_type)
 
 from ..mult_quantization_handler import MultQuantizionHandler
 
+LOG = logging.getLogger('nntool.' + __name__)
+
 
 @params_type('__default__')
-class NoChangeMult(MultQuantizionHandler):
+@in_qs_constraint(MatchAll({'dtype': set([np.int8, np.uint8])}))
+@out_qs_constraint(MatchAll({'dtype': set([np.int8, np.uint8])}))
+class NoChangeMult(MultQuantizionHandler, NoChangeMixin):
     @classmethod
-    def _quantize(cls, params, in_qs, out_dtype, stats, **kwargs):
-        o_q = SymmetricMultQType.from_min_max(min_val=stats['range_out'][0]['min'],
-                                              max_val=stats['range_out'][0]['max'],
-                                              dtype=out_dtype)
-        return MultQuantizationRecord(in_qs=in_qs, out_qs=[o_q])
+    def _quantize(cls, params, in_qs, stats, **kwargs):
+        return cls._handle(params, in_qs, stats, 'scaled', **kwargs)

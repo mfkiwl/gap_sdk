@@ -18,25 +18,24 @@ import math
 import numpy as np
 import scipy.spatial.distance as dis
 
-from quantization.qtype import QType
-
 STATS_BITS = [8, 16, 32]
 
 def range_twos_complement(bits):
     return (math.pow(-2, bits - 1), math.pow(2, bits - 1) - 1)
 
-def calc_bits(num, signed=True):
-    abs_num = math.floor(math.fabs(num))
-    if num < 0 and abs_num > 0:
-        abs_num -= 1
-    if abs_num == 0:
-        return 1
-    # calculate number of bits to represent absolute number
-    return math.floor(math.log(abs_num) / math.log(2)) + 2
+def calc_bits(*args, signed=True):
+    assert signed or all(arg >= 0 for arg in args), "numeric error"
+    if len(args) == 2:
+        if args[0] < args[1]:
+            num = np.ceil(args[1] - args[0])
+        else:
+            num = np.ceil(args[0] - args[1])
+    else:
+        num = np.ceil(np.abs(args[0]))
 
-def bits(max_num, min_num, signed=True):
-    assert signed or (max_num >= 0 and min_num >= 0), "numeric error"
-    return max(calc_bits(min_num), calc_bits(max_num))
+    if num == 0:
+        return (1 if signed else 0)
+    return int(np.ceil(np.log2(num)) + (1 if signed else 0))
 
 def do_stat(npa, do_bits=True, channel_dim=None, all_channel_range=None):
     mean = float(np.mean(npa))
@@ -72,7 +71,7 @@ def do_stat(npa, do_bits=True, channel_dim=None, all_channel_range=None):
         'max_out' : max_out,
     }
     if do_bits:
-        ret['ibits'] = bits(amax, amin)
+        ret['ibits'] = calc_bits(amax, amin)
     # all_channel_range must not be 0
     if all_channel_range and npa.size > 1:
         if channel_dim is not None:
@@ -191,14 +190,14 @@ def closest_greater(v):
             return i
     return STATS_BITS[-1]
 
-def get_quantization(stats, min_qsnr, force_width):
-    qstats = stats['qstats']
-    if force_width is not None:
-        return QType(bits=force_width, q=qstats[force_width]['q'], signed=True)
-    for width in STATS_BITS:
-        if qstats[width]['qsnr'] > min_qsnr:
-            return QType(bits=width, q=qstats[width]['q'], signed=True)
-    raise ValueError("no solution for this QSNR could be found")
+# def get_quantization(stats, min_qsnr, force_width):
+#     qstats = stats['qstats']
+#     if force_width is not None:
+#         return QType(bits=force_width, q=qstats[force_width]['q'], signed=True)
+#     for width in STATS_BITS:
+#         if qstats[width]['qsnr'] > min_qsnr:
+#             return QType(bits=width, q=qstats[width]['q'], signed=True)
+#     raise ValueError("no solution for this QSNR could be found")
 
 def get_current_qsnr(stats, width):
     return stats['qstats'][width]['qsnr']

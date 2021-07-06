@@ -15,31 +15,34 @@
 
 import numpy as np
 from graph.types.activations import SoftMaxParameters
-from quantization.kernels.kernel_base import (KernelBase, params_type,
-                                              qrec_type, quantization)
-from quantization.multiplicative.mult_quantization import \
-    MultQuantizationRecord
-from quantization.quantization_record_base import QuantizationRecordBase
+from quantization.kernels.kernel_base import KernelBase, params_type, qrec_type
+from quantization.new_qrec import QRec
 from utils.exp_17_15 import exp_fp_17_15
 
 
-def softmax_func(v):
-    max_v = np.max(v)
-    v = v - max_v
-    return np.exp(v)/np.sum(np.exp(v))
+def softmax_func(arg, axis=None):
+    if axis is None:
+        axis = -1
+    v = arg - np.max(arg, axis=axis, keepdims=True)
+    exp_v = np.exp(v)
+    v = exp_v/np.sum(exp_v, axis=axis, keepdims=True)
+    if len(arg.shape) == 1:
+        v = v.flatten()
+    return v
 
 
 @params_type(SoftMaxParameters)
-@quantization('symmetric')
+@qrec_type('symmetric')
 class SoftMaxSymmetric(KernelBase):
     @classmethod
     def execute(cls, params,
                 in_tensors,
-                qrec: QuantizationRecordBase,
+                qrec: QRec,
                 **kwargs):
 
         old_err = np.seterr(over='raise')
-        in_tensor = qrec.prepare_inputs(params, in_tensors, ktype="symmetric")[0]
+        in_tensor = qrec.prepare_inputs(
+            params, in_tensors, ktype="symmetric")[0]
         # TODO - Implement properly quantized version
         in_tensor = qrec.in_qs[0].dequantize(in_tensor)
         in_tensor = qrec.out_qs[0].quantize(softmax_func(in_tensor))
@@ -48,13 +51,12 @@ class SoftMaxSymmetric(KernelBase):
 
 
 @params_type(SoftMaxParameters)
-@quantization('symmetric')
-@qrec_type(MultQuantizationRecord)
+@qrec_type('scaled')
 class SoftMaxSymmetricMult(KernelBase):
     @classmethod
     def execute(cls, params,
                 in_tensors,
-                qrec: QuantizationRecordBase,
+                qrec: QRec,
                 **kwargs):
         in_tensor = in_tensors[0].flatten()
         max_val = np.max(in_tensor)
@@ -64,5 +66,6 @@ class SoftMaxSymmetricMult(KernelBase):
         inv_sum = (np.array([(1 << 15)-1], dtype=np.uint32) << 15)//sum_exp
         res = np.abs((exp * inv_sum + (1 << 14)) >> 15)
         iinfo = np.iinfo(np.int16)
-        res = np.clip(res, iinfo.min, iinfo.max).astype(np.int16).reshape(params.out_dims[0].shape)
+        res = np.clip(res, iinfo.min, iinfo.max).astype(
+            np.int16).reshape(params.out_dims[0].shape)
         return qrec.get_outputs(params, [res], ktype="symmetric")

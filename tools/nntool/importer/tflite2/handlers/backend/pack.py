@@ -75,7 +75,7 @@ class Pack(ConstantMixin, BackendHandler):
         if all(cls.is_constant(inp) for inp in inputs):
             LOG.info("reducing %s to a constant", node.name)
             value = np.stack([cls.get_constant(inp) for inp in inputs], axis=axis)
-            params = ConstantInputParameters(node.name, value=value)
+            params = ConstantInputParameters(node.name, value=value, constant_store=G.constant_store)
         else:
             axis -= sum(1 if dim is None else 0 for dim in pconcat_out_shape[:axis:])
             params = ConcatParameters(node.name, axis=axis, axis_hint=None)
@@ -86,7 +86,7 @@ class Pack(ConstantMixin, BackendHandler):
                                             old_shape=reshape_in_shape,
                                             shape=concat_in_shape)
                 G.add_edge(NNEdge(from_node=inp[0], to_node=rparams, from_idx=inp[1]))
-                G.add_edge(NNEdge(from_node=rparams, to_node=params))
+                G.add_edge(NNEdge(from_node=rparams, to_node=params, to_idx=idx))
                 if opts.get('load_quantization'):
                     G.quantization[NodeId(rparams)] = cls.load_tf_quantization([node.input[idx]], [node.input[idx]])
 

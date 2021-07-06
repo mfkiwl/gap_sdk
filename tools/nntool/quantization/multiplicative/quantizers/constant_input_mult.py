@@ -13,31 +13,30 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from copy import deepcopy
+
 from graph.types import ConstantInputParameters
-from quantization.multiplicative.mult_quantization import \
-    MultConstantQuantizationRecord
-from quantization.multiplicative.symmetric.symmetric_mult_qtype import \
-    SymmetricMultQType
-from quantization.quantization_handler import params_type, can_dequantize
+from quantization.new_qrec import QRec
+from quantization.qtype import QType
+from quantization.unified_quantization_handler import (params_type)
 
 from ..mult_quantization_handler import MultQuantizionHandler
 
 
 @params_type(ConstantInputParameters)
-@can_dequantize(True)
 class ConstantInputMult(MultQuantizionHandler):
     @classmethod
-    def _quantize(cls, params, in_qs, out_dtype, stats, **kwargs):
-        o_q = SymmetricMultQType.from_min_max(min_val=stats['range_out'][0]['min'],
-                                              max_val=stats['range_out'][0]['max'],
-                                              dtype=out_dtype)
-        if params.value_quantization:
-            return MultConstantQuantizationRecord(out_qs=[params.value_quantization],
-                                                  constants_are_quantized=True)
+    def _quantize(cls, params, in_qs, stats, **kwargs):
+        force_out_qs, out_dtype = cls.get_mult_opts(**kwargs)
+        force_out_q = force_out_qs and force_out_qs[0]
+        # if forced set what we are forced to
+        if force_out_q:
+            o_q = deepcopy(force_out_q)
+        # if value is already quantized then keep the same quantization
+        elif params.qtype:
+            o_q = deepcopy(params.qtype)
+        # derive quantization from statistics
         else:
-            return MultConstantQuantizationRecord(out_qs=[o_q],
-                                                  constants_are_quantized=False)
-
-    @classmethod
-    def _dequantize(cls, params, qrec):
-        params.value = qrec.out_q[0].dequantize(params.value)
+            o_q = QType.from_array_sq(params.value, dtype=out_dtype)
+        o_q.is_constant = True
+        return QRec.scaled(out_qs=[o_q])

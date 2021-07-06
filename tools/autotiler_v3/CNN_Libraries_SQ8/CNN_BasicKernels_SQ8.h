@@ -2,6 +2,8 @@
 #define __CNN_BASICKERNELS_SQ8__
 #include "Gap.h"
 #include "../CNN_Libraries/CNN_Defines.h"
+#include "../CNN_Libraries/CNN_CopyBasicKernels.h"
+#include "CNN_AT_Misc.h"
 
 #ifdef GENASM
 #ifdef __EMUL__
@@ -38,6 +40,9 @@ typedef enum {
         ACT_HSIGMOID,
         ACT_HSWISH,
         ACT_LEAKYRELU,
+        ACT_SIGMOID,
+		ACT_RELUM,
+		ACT_RELUMN
 } CNN_ActivationOper_T;
 
 /******************************************************************************************************************
@@ -192,6 +197,29 @@ typedef struct {
 	signed char * __restrict__ Infos;	/**< Scaling and constants data */
 } KerMatMul_SQ8_T;
 
+/* Per Layer Quantized Matrix Mul */
+typedef struct {
+	signed char * __restrict__ In1;         /**< First input matrix tile, convolution weights */
+	unsigned short int W_In1;               /**< First input matrix tile width */
+	unsigned short int H_In1;               /**< First input matrix tile height */
+	signed char * __restrict__ In2;         /**< Second input matrix tile, convolution features */
+	unsigned short int W_In2;               /**< Second input matrix tile width, height is by construction H_In1 */
+	void * __restrict__ Bias;        	/**< Bias input tile, convolution bias */
+	unsigned char Scale;  		 	/**< Scale Factor to be applied after convolution */
+	unsigned char ScaleN; 		  	/**< Normalization Factor to be applied after scaling */
+	signed char * __restrict__ Out;         /**< Output matrix tile, W=W_In2, H=H_In1 by construction */
+	unsigned short int W_Out;               /**< Output matrix full width */
+	unsigned short int OutFirstCol;         /**< Equal M2FirstCol */
+	signed char * __restrict__ BufferColIn2;/**< In case vectorization is used will be used to copy a column of In2 into a line */
+	unsigned char NormBias;                 /**< Normalization factor to be applied to Bias */
+	unsigned char ColFirst;                 /**< 1 if product is formed with a vertical tile from In1 and a horizontal from In2, 0 if Hor tile In1 Ver tile In2 */
+	unsigned char Sx;                       /**< When used for 1x1 convolution In2 is a feature maps [H_In2=W_In1=InFeat, W_In2=W*H], Sx applies to W and Sy to H */
+	unsigned char Sy;                       /**< When used for 1x1 convolution In2 is a feature maps [H_In2=W_In1=InFeat, W_In2=W*H], Sy applies to W and Sy to H */
+	unsigned short int W;                   /**< When used for 1x1 convolution In2 is a feature maps [H_In2=W_In1=InFeat, W_In2=W*H], W */
+	unsigned short int H;                   /**< When used for 1x1 convolution In2 is a feature maps [H_In2=W_In1=InFeat, W_In2=W*H], H */
+	signed char * __restrict__ Infos;	/**< Scaling and constants data */
+} KerMatMul_PL_SQ8_T;
+
 /******************************************************************************************************************
 	Tensor addition with optional In1 and Output scaling
 ******************************************************************************************************************/
@@ -206,20 +234,6 @@ typedef struct {
 	unsigned char DoScale;			/**< Apply Scaling */
 	signed char * __restrict__ Infos;	/**< Scaling and constants data */
 } KerMat3_SQ8_T;
-
-/******************************************************************************************************************
-	Matrix transposition and 3D Tensor dim permutation
-******************************************************************************************************************/
-
-typedef struct {
-	signed char *__restrict__ In;           /**< Input matrix */
-	signed char *__restrict__ Out;          /**< Output matrix */
-	unsigned int Feat;                      /**< Number of matrices */
-	unsigned int W;                         /**< Matrix width */
-	unsigned int H;                         /**< Matrix height */
-	unsigned char Sx;                       /**< Stride for W dimension */
-	unsigned char Sy;                       /**< Stride for H dimension */
-} KerMatTranspose_fps_T;
 
 
 /******************************************************************************************************************
@@ -346,40 +360,38 @@ typedef struct {
 } KerLSTM_SQ8_T;
 
 
-#define GRU_R_INF              7
+#define GRU_R_INF              4
 #define GRU_R_OFF              0
-#define GRU_R_SCALE            0
-#define GRU_R_SCALEN           1
-#define GRU_R_A0               2
-#define GRU_R_B0               3
-#define GRU_R_C0               4
-#define GRU_R_ASCALE           5
-#define GRU_R_ASCALEN          6
+#define GRU_R_INT_SCALE        0
+#define GRU_R_INT_SCALEN       1
+#define GRU_R_IN_SCALE         2
+#define GRU_R_IN_SCALEN        3
 
-#define GRU_Z_INF              7
+#define GRU_Z_INF              4
 #define GRU_Z_OFF              (GRU_R_OFF+GRU_R_INF)
-#define GRU_Z_SCALE            (0 + GRU_Z_OFF)
-#define GRU_Z_SCALEN           (1 + GRU_Z_OFF)
-#define GRU_Z_A0               (2 + GRU_Z_OFF)
-#define GRU_Z_B0               (3 + GRU_Z_OFF)
-#define GRU_Z_C0               (4 + GRU_Z_OFF)
-#define GRU_Z_ASCALE           (5 + GRU_Z_OFF)
-#define GRU_Z_ASCALEN          (6 + GRU_Z_OFF)
+#define GRU_Z_INT_SCALE        (0 + GRU_Z_OFF)
+#define GRU_Z_INT_SCALEN       (1 + GRU_Z_OFF)
+#define GRU_Z_IN_SCALE         (2 + GRU_Z_OFF)
+#define GRU_Z_IN_SCALEN        (3 + GRU_Z_OFF)
 
-#define GRU_HT_INF              4
+#define GRU_HT_INF              2
 #define GRU_HT_OFF              (GRU_Z_OFF+GRU_Z_INF)
-#define GRU_HT_SCALE            (0 + GRU_HT_OFF)
-#define GRU_HT_SCALEN           (1 + GRU_HT_OFF)
-#define GRU_HT_A0               (2 + GRU_HT_OFF)
-#define GRU_HT_B0               (3 + GRU_HT_OFF)
+#define GRU_HT_IN_SCALE         (0 + GRU_HT_OFF)
+#define GRU_HT_IN_SCALEN        (1 + GRU_HT_OFF)
 
-#define GRU_H_INF		3
-#define GRU_H_OFF		(GRU_HT_OFF+GRU_HT_INF)
-#define GRU_H_SCALE		(0 + GRU_HT_OFF)
-#define GRU_H_SCALEN		(1 + GRU_HT_OFF)
-#define GRU_H_A0		(2 + GRU_HT_OFF)
+#define GRU_H_INF				2
+#define GRU_H_OFF				(GRU_HT_OFF+GRU_HT_INF)
+#define GRU_H_INT_SCALE			(0 + GRU_H_OFF)
+#define GRU_H_INT_SCALEN		(1 + GRU_H_OFF)
 
-#define GRU_CELL_INFOS (GRU_R_INF+GRU_Z_INF+GRU_HT_INF+GRU_H_INF)
+#define GRU_INT_INF             7
+#define GRU_INT_OFF             (GRU_H_OFF+GRU_H_INF)
+#define GRU_INT_A0              (0 + GRU_INT_OFF)
+#define GRU_INT_B0              (2 + GRU_INT_OFF)
+#define GRU_INT_C0              (4 + GRU_INT_OFF)
+#define GRU_INT_Q               (6 + GRU_INT_OFF)
+
+#define GRU_CELL_INFOS (GRU_R_INF+GRU_Z_INF+GRU_HT_INF+GRU_H_INF+GRU_INT_INF)
 
 typedef struct {
 	signed char *__restrict__ StateInOut;	/**< Pointer to In/Out state, Dim=DimState   */
@@ -392,8 +404,8 @@ typedef struct {
 	signed char *__restrict__ Wz;		/**< Pointer to Z gate weights, Dim=[DimState+DimIn,DimState] */
 	void * __restrict__ Bz;			/**< Pointer to Z gate bias */
 	signed char *__restrict__ Wh;		/**< Pointer to H gate weights, Dim=[DimState+DimIn,DimState] */
-	void * __restrict__ Bh;			/**< Pointer to H gate bias */
-	signed char *__restrict__ Sbuff;	/**< Pointer to Ht buffer, Dim=[DimState] */
+	void * __restrict__ Bwh;		/**< Pointer to H gate bias vs Inputs */
+	void * __restrict__ Brh;		/**< Pointer to H gate bias vs States */
 	signed char *__restrict__ Hout;		/**< Pointer to Hout in case sequence must be exposed, null otherwise */
 	unsigned short int Nout;		/**< Number of output produced in StateInOut */
 	unsigned short int OutBase;		/**< Index of first output produced in StateInOut */
@@ -404,6 +416,37 @@ typedef struct {
 	int TileOffset;				/**< Buffer Offset related to the current Tile index */
 } KerGRU_SQ8_T;
 
+
+/******************************************************************************************************************
+	Standalone scaling and activation for HWC layer layout
+******************************************************************************************************************/
+typedef struct {
+	void *__restrict__ In;
+	void *__restrict__ Out;
+	unsigned short int Feat;
+	unsigned short int W;
+	unsigned short int H;
+	signed char * __restrict__ Infos;
+} KerActivation_HWC_SQ8_T;
+
+/******************************************************************************************************************
+	Pooling followed by optional scaling and activation
+******************************************************************************************************************/
+typedef struct {
+	unsigned char * __restrict__ In;
+	unsigned char * __restrict__ Out;
+	unsigned short int Feat;
+	unsigned short int W;
+	unsigned short int UsedW;
+	unsigned short int H;
+	unsigned short int UsedH;
+	unsigned short FS;		/* Filter Size, x */
+	unsigned short FSy;		/* Filter Size, y */
+	unsigned char S;		/* Filter Stride, x */
+	unsigned char Sy;		/* Filter Stride, y */
+	v4s Pad;
+	signed char * __restrict__ Infos;
+} KerPool_HWC_USQ8_T;
 
 /******************************************************************************************************************
 	Bias setting for convolution and linear layers, output is 32b, input is 8,16 or 32b
@@ -445,9 +488,21 @@ void KerParConv5x5Stride2_SQ8(KerConv_SQ8_T *Arg);
 void KerParConv5x5StrideS_SQ8(KerConv_SQ8_T *Arg);
 void KerParConv7x7StrideS_SQ8(KerConv_SQ8_T *Arg);
 void KerParConv13x1Stride1x1_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv4x10StrideSxSy_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv1D_NStrideS_SQ8(KerConv_SQ8_T *Arg);
+void KerParConvNx1StrideSxS1_SQ8(KerConv_SQ8_T *Arg);
 void KerParConvNxNStrideS_SQ8(KerConv_SQ8_T *Arg);
 void KerParConvNxMStrideSxSy_SQ8(KerConv_SQ8_T *Arg);
 void KerParConvNxMDxDyStrideSxSy_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3DxDyStrideSxSy_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3DxDyStride1x1_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3D2x2Stride1x1_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3D4x4Stride1x1_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3D8x8Stride1x1_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3D2x1Stride1x1_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3D4x1Stride1x1_SQ8(KerConv_SQ8_T *Arg);
+void KerParConv3x3D8x1Stride1x1_SQ8(KerConv_SQ8_T *Arg);
+
 
 
 void KerConv1x1Stride1_SQ8(KerConv_SQ8_T *Arg);
@@ -468,6 +523,8 @@ void KerConv5x5Stride1_SQ8(KerConv_SQ8_T *Arg);
 void KerConv5x5Stride2_SQ8(KerConv_SQ8_T *Arg);
 void KerConv5x5StrideS_SQ8(KerConv_SQ8_T *Arg);
 void KerConv7x7StrideS_SQ8(KerConv_SQ8_T *Arg);
+void KerConv1D_NStrideS_SQ8(KerConv_SQ8_T *Arg);
+void KerConvNx1StrideSxS1_SQ8(KerConv_SQ8_T *Arg);
 void KerConvNxNStrideS_SQ8(KerConv_SQ8_T *Arg);
 void KerConvNxMStrideSxSy_SQ8(KerConv_SQ8_T *Arg);
 void KerConvNxMDxDyStrideSxSy_SQ8(KerConv_SQ8_T *Arg);
@@ -623,15 +680,21 @@ void KerConvDWNxMDxDyStrideSxSyB32_SQ8(KerConv_SQ8_T *Arg);
 	  Channel Centric (CC)
 ******************************************************************************************************************/
 
+int Sigmoid(int x);
+int Tanh(int x);
+
 /*
  * Input Scaling and reduction to 8b then channel centric activation, Out location != In location. Features are evaluated in parallel
 */
 void KerParReduct_CC_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReduct_CC_ReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReduct_CC_ReLUN_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_ReLUM_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_ReLUMN_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReduct_CC_HSigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReduct_CC_HSwish_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReduct_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_Sigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
 
 /*
  * Input Scaling and reduction to 8b then channel centric activation, Out location = In location. Features are evaluated in parallel
@@ -639,9 +702,12 @@ void KerParReduct_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReductIO_CC_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReductIO_CC_ReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReductIO_CC_ReLUN_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReductIO_CC_ReLUM_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReductIO_CC_ReLUMN_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReductIO_CC_HSigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReductIO_CC_HSwish_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerParReductIO_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReductIO_CC_Sigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
 
 /*
  * Input Scaling and reduction to 8b then channel centric activation, Out location != In location. Features are evaluated one after the other in parallel
@@ -649,9 +715,12 @@ void KerParReductIO_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReduct_CC_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReduct_CC_ReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReduct_CC_ReLUN_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerReduct_CC_ReLUM_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerReduct_CC_ReLUMN_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReduct_CC_HSigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReduct_CC_HSwish_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReduct_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerReduct_CC_Sigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
 
 /*
  * Input Scaling and reduction to 8b then channel centric activation, Out location = In location. Features are evaluated one after the other in parallel
@@ -659,9 +728,26 @@ void KerReduct_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReductIO_CC_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReductIO_CC_ReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReductIO_CC_ReLUN_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerReductIO_CC_ReLUM_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerReductIO_CC_ReLUMN_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReductIO_CC_HSigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReductIO_CC_HSwish_SQ8(KerConvLinReduct_SQ8_T *Arg);
 void KerReductIO_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerReductIO_CC_Sigmoid_SQ8(KerConvLinReduct_SQ8_T *Arg);
+
+/* HWC Layout */
+void KerParReduct_CC_HWC_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_NoScale_HWC_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_ReLU_HWC_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_ReLUN_HWC_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_HSigmoid_HWC_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_HSwish_HWC_SQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_LeakyReLU_HWC_SQ8(KerConvLinReduct_SQ8_T *Arg);
+
+void KerParReduct_CC_NoScale_HWC_USQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_HWC_USQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_ReLU_HWC_USQ8(KerConvLinReduct_SQ8_T *Arg);
+void KerParReduct_CC_ReLUN_HWC_USQ8(KerConvLinReduct_SQ8_T *Arg);
 
 /******************************************************************************************************************
           Stand alone activation. Parallel Feature, Feature Parallel
@@ -672,20 +758,50 @@ void KerReductIO_CC_LeakyReLU_SQ8(KerConvLinReduct_SQ8_T *Arg);
 /*
  * Standalone Scaled Activation, Features are evaluated in parallel
 */
+void KerPar_ActNone_SQ8(KerActivation_SQ8_T *Arg);
 void KerPar_ReLU_SQ8(KerActivation_SQ8_T *Arg);
 void KerPar_ReLUN_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_ReLUM_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_ReLUMN_SQ8(KerActivation_SQ8_T *Arg);
 void KerPar_HSigmoid_SQ8(KerActivation_SQ8_T *Arg);
 void KerPar_HSwish_SQ8(KerActivation_SQ8_T *Arg);
 void KerPar_LeakyReLU_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_Sigmoid_SQ8(KerActivation_SQ8_T *Arg);
+
+
+void KerPar_ActNone_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_ReLU_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_ReLUN_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_ReLUM_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_ReLUMN_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_HSigmoid_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_HSwish_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_LeakyReLU_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void KerPar_Sigmoid_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+
 
 /*
  * Standalone Scaled Activation, Features are evaluated one after the other in parallel
 */
+void Ker_ActNone_SQ8(KerActivation_SQ8_T *Arg);
 void Ker_ReLU_SQ8(KerActivation_SQ8_T *Arg);
 void Ker_ReLUN_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_ReLUM_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_ReLUMN_SQ8(KerActivation_SQ8_T *Arg);
 void Ker_HSigmoid_SQ8(KerActivation_SQ8_T *Arg);
 void Ker_HSwish_SQ8(KerActivation_SQ8_T *Arg);
 void Ker_LeakyReLU_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_Sigmoid_SQ8(KerActivation_SQ8_T *Arg);
+
+void Ker_ActNone_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_ReLU_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_ReLUN_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_ReLUM_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_ReLUMN_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_HSigmoid_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_HSwish_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_LeakyReLU_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
+void Ker_Sigmoid_ScaleIn_SQ8(KerActivation_SQ8_T *Arg);
 
 
 /******************************************************************************************************************
@@ -724,6 +840,8 @@ void KerParGlobalAvgPoolFullFeat_SQ8(KerGlobalPool_SQ8_T *Arg);
 void KerParGlobalAvgPoolFullFeat_ReLU_SQ8(KerGlobalPool_SQ8_T *Arg);
 void KerParGlobalAvgPoolFullFeat_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg);
 
+/* Pooling Basic Kernels for HWC Layers layout */
+void KerParPool_MaxPoolNxMStrideSxSy__HWC_USQ8(KerPool_HWC_USQ8_T *Arg);
 
 /*************************************************************************************************************************************************
 	Pooling group.
@@ -777,8 +895,19 @@ void KerParMatMulSxSyB16_ReLU_SQ8(KerMatMul_SQ8_T *Arg);
 void KerParMatMulSxSyB16_ReLUN_SQ8(KerMatMul_SQ8_T *Arg);
 
 void KerParMatMulB32_SQ8(KerMatMul_SQ8_T *Arg);
+void KerParMatMulB32_2x4_SQ8(KerMatMul_SQ8_T *Arg);
 void KerParMatMulB32_ReLU_SQ8(KerMatMul_SQ8_T *Arg);
+void KerParMatMulB32_2x4_ReLU_SQ8(KerMatMul_SQ8_T *Arg);
 void KerParMatMulB32_ReLUN_SQ8(KerMatMul_SQ8_T *Arg);
+void KerParMatMulTransposedB32_SQ8(KerMatMul_SQ8_T *Arg);
+void KerParMatMulTransposedB32_ReLU_SQ8(KerMatMul_SQ8_T *Arg);
+void KerParMatMulTransposedB32_ReLUN_SQ8(KerMatMul_SQ8_T *Arg);
+void KerParMatMulB32_2x4_PL_SQ8(KerMatMul_PL_SQ8_T *Arg);
+void KerParMatMulB32_2x4_ReLU_PL_SQ8(KerMatMul_PL_SQ8_T *Arg);
+void KerParMatMulB32_2x4_ReLUN_PL_SQ8(KerMatMul_PL_SQ8_T *Arg);
+void KerParMatMulNoBias_2x4_SQ8(KerMatMul_PL_SQ8_T *Arg);
+void KerParMatMulNoBias_2x4_ReLU_SQ8(KerMatMul_PL_SQ8_T *Arg);
+void KerParMatMulNoBias_2x4_ReLUN_SQ8(KerMatMul_PL_SQ8_T *Arg);
 void KerParMatMulSxSyB32_SQ8(KerMatMul_SQ8_T *Arg);
 void KerParMatMulSxSyB32_ReLU_SQ8(KerMatMul_SQ8_T *Arg);
 void KerParMatMulSxSyB32_ReLUN_SQ8(KerMatMul_SQ8_T *Arg);
@@ -802,6 +931,7 @@ void KerParMatMulB16_ReLUN_SF_SQ8(KerMatMul_SQ8_T *Arg);
 
 void KerParMatMulB32_SF_SQ8(KerMatMul_SQ8_T *Arg);
 void KerParMatMulB32_ReLU_SF_SQ8(KerMatMul_SQ8_T *Arg);
+void KerParMatMulB32_2x4_ReLU_SF_SQ8(KerMatMul_SQ8_T *Arg);
 void KerParMatMulB32_ReLUN_SF_SQ8(KerMatMul_SQ8_T *Arg);
 
 /*************************************************************************************************************************************************
@@ -837,29 +967,11 @@ void KerParLinearLayerFullFeatB32_ReLU_SQ8(KerLinear_SQ8_T *Arg);
 void KerParLinearLayerFullFeatB32_ReLUN_SQ8(KerLinear_SQ8_T *Arg);
 
 /*************************************************************************************************************************************************
-	List of Matrix Transposition, no scaling
-*************************************************************************************************************************************************/
-
-void CNN_ParTranspose_fps(KerMatTranspose_fps_T *Arg);
-void CNN_ParTransposeSxSy_fps(KerMatTranspose_fps_T *Arg);
-void CNN_Transpose_fps(KerMatTranspose_fps_T *Arg);
-void CNN_TransposeSxSy_fps(KerMatTranspose_fps_T *Arg);
-
-/*************************************************************************************************************************************************
-	3D Tensor dimension permutations, no scaling
-*************************************************************************************************************************************************/
-
-void CNN_MatPermCHW2CWH_fps(KerMatTranspose_fps_T *Arg);
-void CNN_MatPermCHW2HWC_fps(KerMatTranspose_fps_T *Arg);
-void CNN_MatPermCHW2WHC_fps(KerMatTranspose_fps_T *Arg);
-void CNN_MatPermCHW2WCH_fps(KerMatTranspose_fps_T *Arg);
-void CNN_MatPermCHW2HCW_fps(KerMatTranspose_fps_T *Arg);
-
-/*************************************************************************************************************************************************
 	SotMax, Q15 Output
 *************************************************************************************************************************************************/
 
 void KerParSoftMax_SQ8(KerSoftMax_SQ8_T *Arg);
+void KerParSoftMax8Bits_SQ8(KerSoftMax_SQ8_T *Arg);
 
 /******************************************************************************************************************
  	Recursive NN (RNN, LSTM, GRU)
@@ -874,7 +986,9 @@ void LSTM_ParKerB32_SameInStateScale_SQ8(KerLSTM_SQ8_T *Arg);
 void LSTM_ParKerB32_Hard_SQ8(KerLSTM_SQ8_T *Arg);
 void LSTM_ParKerB32_Hard_SameInStateScale_SQ8(KerLSTM_SQ8_T *Arg);
 void GRU_ParKerB32_SQ8(KerGRU_SQ8_T *Arg);
+void GRU_ParKerB32_Hard_SQ8(KerGRU_SQ8_T *Arg);
 
+#ifdef OLD
 /*************************************************************************************************************************************************
 	AT book keeping functions
 *************************************************************************************************************************************************/
@@ -907,5 +1021,23 @@ void AT_DumpTensor(
         void *Addr                      /**< Address of Arg */
         );
 
+void AT_ChecksumTensor(
+	char *NodeName,			/**< Graph Node Name, a User Kernel */
+	char *ArgName,			/**< Argument name of this user kernel */
+	int Loc,			/**< Exec location if this argument, AT_MEM_xyz */
+	void *L3_Device,		/**< Pointer to device descriptor in case Loc is external */
+	void *L3_Event,			/**< Pointer to a read event for this device descriptor if any */
+	int ItemSize,			/**< Data type size in bytes */
+	int Dim,			/**< Number of dimensions, up to 5, from D0 most outer to D4 most inner */
+	int D0,				/**< Actual value of this dimension if defined, 1 otherwise */
+	int D1,				/**< Actual value of this dimension if defined, 1 otherwise */
+	int D2,				/**< Actual value of this dimension if defined, 1 otherwise */
+	int D3,				/**< Actual value of this dimension if defined, 1 otherwise */
+	int D4,				/**< Actual value of this dimension if defined, 1 otherwise */
+	void *L2_BufferAddr,		/**< In case exec loc is external pointer to a buffer in L2 to host partial copy of Arg */
+	unsigned int L2_BufferSize,	/**< Size of this buffer */
+	void *Addr			/**< Address of Arg */
+	);
+#endif
 
 #endif

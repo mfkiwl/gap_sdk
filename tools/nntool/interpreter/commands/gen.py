@@ -17,7 +17,7 @@ import argparse
 import logging
 import os
 from cmd2 import Cmd, Cmd2ArgumentParser, with_argparser
-from interpreter.nntool_shell_base import NNToolShellBase
+from interpreter.nntool_shell_base import NNToolShellBase, no_history
 from utils.data_importer import import_data
 from execution.graph_executer import GraphExecuter
 from execution.quantization_mode import QuantizationMode
@@ -48,6 +48,9 @@ class GenCommand(NNToolShellBase):
     parser_gen.add_argument('-t', '--output_tensors',
                             action='store_true',
                             help='write constants (weights, biases)')
+    parser_gen.add_argument('--anonymise',
+                            action='store_true',
+                            help='make variable and function names cryptic to hide function')
     parser_gen.add_argument('-c', '--checksums',
                             completer_method=Cmd.path_complete,
                             help='generate checksum tests in code for the given file')
@@ -64,6 +67,7 @@ class GenCommand(NNToolShellBase):
                             help='file to write to, otherwise output to terminal')
 
     @with_argparser(parser_gen)
+    @no_history
     def do_gen(self, args):
         """
 Generate AutoTiler model C code and optionally dump tensors. If no destination file is
@@ -87,7 +91,8 @@ settings related to code generation."""
             self.settings['model_directory'] = args.model_directory
         self.settings['basic_kernel_source_file'] = args.basic_kernel_source_file
         self.settings['basic_kernel_header_file'] = args.basic_kernel_header_file
-        code_gen = CodeGenerator(self.G, DefaultNamingConvension(self.G), self.settings)
+        self.settings['anonymise'] = args.anonymise
+        code_gen = CodeGenerator(self.G, DefaultNamingConvension(self.G, anonymise=args.anonymise), self.settings)
 
         if self.settings['template_file']:
             code_template = dynamic_template(self.settings['template_file'])
