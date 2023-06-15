@@ -1,7 +1,24 @@
+/*
+ * Copyright (C) 2018 GreenWaves Technologies
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #ifndef __CNN_GENERATORS_SQ8_H__
 #define __CNN_GENERATORS_SQ8_H__
 #include <stdint.h>
 #include "AutoTilerLib.h"
+#include "CNN_Copy_Generators.h"
 
 #include "../CNN_Generators/CNN_Copy_Generators.h"
 
@@ -50,6 +67,40 @@ void LoadCNN_SQ8_Library();
 	
 *********************************************************************************************************************************************************************/
 
+Kernel_T *CNN_ConvolutionPoolAct_SQ8_Internal(
+	char         *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+	int Bias_DataSize,
+	int Scale_DataSize,
+
+       	int InFeat,
+       	int OutFeat,
+       	int Width,
+       	int Height,
+
+	KernelOper_T ConvOper,
+       	int Fcx,
+       	int Fcy,
+	int Dcx,
+	int Dcy,
+	int Scx,
+	int Scy,
+	int ConvPad,
+
+	KernelOper_T PoolOper,
+	int Fpx,
+	int Fpy,
+	int Dpx,
+	int Dpy,
+	int Spx,
+	int Spy,
+	int PoolPad,
+
+	KernelOper_T ActOper
+	);
+
 int CNN_ConvolutionPoolAct_SQ8(
 	char         *Name,
 
@@ -83,6 +134,75 @@ int CNN_ConvolutionPoolAct_SQ8(
 
 	KernelOper_T ActOper
 	);
+
+int CNN_MM_ConvolutionPoolAct_SQ8(
+        char         *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int Bias_DataSize,
+        int Scale_DataSize,
+
+        int InFeat,
+        int OutFeat,
+        int Width,
+        int Height,
+
+        KernelOper_T ConvOper,
+        int Fcx,
+        int Fcy,
+        int Dcx,
+        int Dcy,
+        int Scx,
+        int Scy,
+        int ConvPad,
+
+        KernelOper_T PoolOper,
+        int Fpx,
+        int Fpy,
+        int Dpx,
+        int Dpy,
+        int Spx,
+        int Spy,
+        int PoolPad,
+
+        KernelOper_T ActOper
+        );
+
+int CNN_HWC_DWConvolutionPoolAct_SQ8(
+        char         *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int Bias_DataSize,
+        int Scale_DataSize,
+
+        int InFeat,
+        int OutFeat,
+        int Width,
+        int Height,
+
+        KernelOper_T ConvOper,
+        int Fcx,
+        int Fcy,
+        int Dcx,
+        int Dcy,
+        int Scx,
+        int Scy,
+        int ConvPad,
+
+        KernelOper_T PoolOper,
+        int Fpx,
+        int Fpy,
+        int Dpx,
+        int Dpy,
+        int Spx,
+        int Spy,
+        int PoolPad,
+
+        KernelOper_T ActOper
+        );
+
 
 /*********************************************************************************************************************************************************************
  	Generator for Grouped Convolutions with channel centric scaling, followed by an optional pooling (Max or Average),
@@ -216,6 +336,27 @@ int CNN_PoolAct_SQ8(
 	KernelOper_T ActOper
 	);
 
+Kernel_T *CNN_PoolAct_SQ8_Internal(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+       	int Feat,
+       	int Width,
+       	int Height,
+
+	KernelOper_T PoolOper,
+	int Fpx,
+	int Fpy,
+	int Dpx,
+	int Dpy,
+	int Spx,
+	int Spy,
+	int PoolPad,
+
+	KernelOper_T ActOper
+	);
+
 /*********************************************************************************************************************************************************************
  	Generator for Activation with tensor centric scaling
 
@@ -238,6 +379,18 @@ int CNN_PoolAct_SQ8(
 *********************************************************************************************************************************************************************/
 
 int CNN_Act_SQ8(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+       	int Feat,
+       	int Width,
+       	int Height,
+
+       	KernelOper_T ActOper
+       	);
+
+Kernel_T *CNN_Act_SQ8_Internal(
 	char *Name,
 
 	CNN_GenControl_T *Ctrl,
@@ -325,6 +478,21 @@ int CNN_LinearAct_SQ8(
 	KernelOper_T ActOper
 	);
 
+Kernel_T *CNN_LinearAct_SQ8_Internal(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+	int Bias_DataSize,
+	int Scale_DataSize,
+
+	int InDim,
+	int OutDim,
+
+	KernelOper_T LinearOper,
+	KernelOper_T ActOper
+	);
+
 /*********************************************************************************************************************************************************************
  	Generator for SoftMax layers, no scaling
 
@@ -359,8 +527,8 @@ int CNN_SoftMax2D_SQ8(
 
 	CNN_GenControl_T *Ctrl,
 
-	int SoftmaxDim,
-	int N,
+	int Feat,
+	int Dim,
 
         KernelOper_T SoftMaxOper
 	);
@@ -530,6 +698,54 @@ int CNN_MatMulAct_SQ8(
         KernelOper_T ActOper
 	);
 
+int CNN_BatchedMatMulAct_SQ8(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+	int Bias_DataSize,
+	int Scale_DataSize,
+
+	int NBatches,
+	int ColM1,
+	int LineM1,
+	int ColM2,
+	int LineM2,
+
+	int Width,
+	int Height,
+	int Scx,
+	int Scy,
+
+	KernelOper_T MatMulOper,
+	KernelOper_T ActOper
+	);
+
+Kernel_T *CNN_MatMulAct_SQ8_Internal(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+	int Bias_DataSize,
+	int Scale_DataSize,
+
+	int NBatches,
+	int ColM1,
+	int LineM1,
+	int ColM2,
+	int LineM2,
+
+	int Width,
+	int Height,
+	int Scx,
+	int Scy,
+
+        KernelOper_T MatMulOper,
+        KernelOper_T ActOper,
+        int InvertInputs
+	);
+
+
 /*********************************************************************************************************************************************************************
  	Generator for Matrix Multiplication layers with channel centric scaling followed by an optional Activation.
 	Special form to handle small form factor In1 (InFeat x OutFeat)
@@ -569,6 +785,28 @@ int CNN_MatMulAct_SQ8(
 *********************************************************************************************************************************************************************/
 
 int CNN_MatMulSmallM1Act_SQ8(
+	char *Name,
+
+	CNN_GenControl_T *Ctrl,
+
+	int Bias_DataSize,
+	int Scale_DataSize,
+
+	int ColM1,
+	int LineM1,
+	int ColM2,
+	int LineM2,
+
+	int Width,
+	int Height,
+	int Scx,
+	int Scy,
+
+        KernelOper_T MatMulOper,
+        KernelOper_T ActOper
+	);
+
+Kernel_T  *CNN_MatMulSmallM1Act_SQ8_Internal(
 	char *Name,
 
 	CNN_GenControl_T *Ctrl,

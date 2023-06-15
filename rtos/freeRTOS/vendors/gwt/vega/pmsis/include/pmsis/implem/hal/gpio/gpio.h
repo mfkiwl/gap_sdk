@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, GreenWaves Technologies, Inc.
+ * Copyright (c) 2020, GreenWaves Technologies, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -28,137 +28,182 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __PI_HAL_GPIO_H__
-#define __PI_HAL_GPIO_H__
+#ifndef __PMSIS_IMPLEM_HAL_GPIO_GPIO_H__
+#define __PMSIS_IMPLEM_HAL_GPIO_GPIO_H__
 
 #include "pmsis/targets/target.h"
 
-#define ARCHI_GPIO_NB_DEVICE               ( 0x1 )
-#define ARCHI_GPIO_DEVICE_SIZE             ( 0x40 )
+#define ARCHI_GPIO_NB_DEVICE               ( 0x2 )
+#define ARCHI_GPIO_DEVICE_SIZE             ( 0x38 )
 //#define ARCHI_GPIO_NB_GPIO_PER_DEVICE      ( ARCHI_NB_GPIO / ARCHI_GPIO_NB_DEVICE )
 #define ARCHI_GPIO_NB_GPIO_PER_DEVICE      ( 0x20 )
 #define ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK ( ARCHI_GPIO_NB_GPIO_PER_DEVICE - 1 )
+#define ARCHI_GPIO_DEVICE_ID(gpio)         ( ((gpio) & 0x60) >> 5 )
+#define ARCHI_GPIO_DEVICE_OFFSET(id)       ( (id) * ARCHI_GPIO_DEVICE_SIZE )
 
-#define ARCHI_GPIO_NB_PADCFG_REG           ( 0x8 )
-#define ARCHI_GPIO_NB_PADCFG_REG_LOG2      ( 0x3 )
+#define ARCHI_GPIO_NB_PADCFG_REG           ( 0x4 )
+#define ARCHI_GPIO_NB_PADCFG_REG_LOG2      ( 0x2 )
+#if 1
 #define ARCHI_GPIO_NB_GPIO_PER_PADCFG      ( ARCHI_GPIO_NB_GPIO_PER_DEVICE >> ARCHI_GPIO_NB_PADCFG_REG_LOG2 )
 #define ARCHI_GPIO_PADCFG_REG_OFFSET(gpio) ( (gpio) / ARCHI_GPIO_NB_GPIO_PER_PADCFG )
 #define ARCHI_GPIO_PADCFG_POS_OFFSET(gpio) ( (gpio) % ARCHI_GPIO_NB_GPIO_PER_PADCFG )
+#else
+//#define ARCHI_GPIO_DEVICE_OFFSET(gpio)     ( (gpio) / ARCHI_GPIO_NB_DEVICE )
+#define ARCHI_GPIO_POS_DEVICE(gpio)        ( (gpio) & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK )
 
+#define ARCHI_GPIO_NB_GPIO_PER_PADCFG      ( ARCHI_GPIO_NB_GPIO_PER_DEVICE >> ARCHI_GPIO_NB_PADCFG_REG_LOG2 )
+#define ARCHI_GPIO_PADCFG_REG_OFFSET(gpio) ( ARCHI_GPIO_POS_DEVICE(gpio) / ARCHI_GPIO_NB_GPIO_PER_PADCFG )
+#define ARCHI_GPIO_PADCFG_POS_OFFSET(gpio) ( ARCHI_GPIO_POS_DEVICE(gpio) % ARCHI_GPIO_NB_GPIO_PER_PADCFG )
+#endif
 
-
-/* Paddir register. */
-static inline void gpio_paddir_set(uint32_t value)
+/** PADDIR Register. */
+static inline uint32_t gpio_paddir_get(uint32_t base, uint32_t dev_offset)
 {
-    hal_write32(&(gpio(0)->paddir), value);
+    uint32_t reg_offset = (uint32_t) GPIO_PADDIR_00_31_OFFSET + dev_offset;
+    return GAP_READ(base, reg_offset);
 }
 
-static inline uint32_t gpio_paddir_get()
+static inline void gpio_paddir_set(uint32_t base, uint32_t dev_offset, uint32_t value)
 {
-    return hal_read32(&(gpio(0)->paddir));
-}
-
-
-/* Padin register. */
-static inline void gpio_padin_set(uint32_t value)
-{
-    hal_write32(&(gpio(0)->padin), value);
-}
-
-static inline uint32_t gpio_padin_get()
-{
-    return hal_read32(&(gpio(0)->padin));
+    uint32_t reg_offset = (uint32_t) GPIO_PADDIR_00_31_OFFSET + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
 }
 
 
-/* Padout register. */
-static inline void gpio_padout_set(uint32_t value)
+/** GPIOEN Register. */
+static inline uint32_t gpio_gpioen_get(uint32_t base, uint32_t dev_offset)
 {
-    hal_write32(&(gpio(0)->padout), value);
+    uint32_t reg_offset = (uint32_t) GPIO_GPIOEN_00_31_OFFSET + dev_offset;
+    return GAP_READ(base, reg_offset);
 }
 
-static inline uint32_t gpio_padout_get()
+static inline void gpio_gpioen_set(uint32_t base, uint32_t dev_offset, uint32_t value)
 {
-    return hal_read32(&(gpio(0)->padout));
-}
-
-
-/* Inten register. */
-static inline void gpio_inten_set(uint32_t value)
-{
-    hal_write32(&(gpio(0)->inten), value);
-}
-
-static inline uint32_t gpio_inten_get()
-{
-    return hal_read32(&(gpio(0)->inten));
+    uint32_t reg_offset = (uint32_t) GPIO_GPIOEN_00_31_OFFSET + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
 }
 
 
-/* Inttype register. */
-static inline void gpio_inttype_set(uint8_t int_reg, uint32_t value)
+/** PADIN Register. */
+static inline uint32_t gpio_padin_get(uint32_t base, uint32_t dev_offset)
 {
-    hal_write32(&(gpio(0)->inttype[int_reg]), value);
+    uint32_t reg_offset = (uint32_t) GPIO_PADIN_00_31_OFFSET + dev_offset;
+    return GAP_READ(base, reg_offset);
 }
 
-static inline uint32_t gpio_inttype_get(uint8_t int_reg)
+static inline void gpio_padin_set(uint32_t base, uint32_t dev_offset, uint32_t value)
 {
-    return hal_read32(&(gpio(0)->inttype[int_reg]));
-}
-
-
-/* Intstatus register. */
-static inline void gpio_intstatus_set(uint32_t value)
-{
-    hal_write32(&(gpio(0)->intstatus), value);
-}
-
-static inline uint32_t gpio_intstatus_get()
-{
-    return hal_read32(&(gpio(0)->intstatus));
+    uint32_t reg_offset = (uint32_t) GPIO_PADIN_00_31_OFFSET + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
 }
 
 
-/* Gpioen register. */
-static inline void gpio_gpioen_set(uint32_t value)
+/** PADOUT Register. */
+static inline uint32_t gpio_padout_get(uint32_t base, uint32_t dev_offset)
 {
-    hal_write32(&(gpio(0)->gpioen), value);
+    uint32_t reg_offset = (uint32_t) GPIO_PADOUT_00_31_OFFSET + dev_offset;
+    return GAP_READ(base, reg_offset);
 }
 
-static inline uint32_t gpio_gpioen_get()
+static inline void gpio_padout_set(uint32_t base, uint32_t dev_offset, uint32_t value)
 {
-    return hal_read32(&(gpio(0)->gpioen));
+    uint32_t reg_offset = (uint32_t) GPIO_PADOUTSET_00_31_OFFSET + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
+}
+
+static inline void gpio_padout_clear(uint32_t base, uint32_t dev_offset, uint32_t value)
+{
+    uint32_t reg_offset = (uint32_t) GPIO_PADOUTCLR_00_31_OFFSET + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
 }
 
 
-/* Padcfg register. */
-static inline void gpio_padcfg_set(uint8_t int_reg, uint32_t value)
+/** INTEN Register. */
+static inline uint32_t gpio_inten_get(uint32_t base, uint32_t dev_offset)
 {
-    hal_write32(&(gpio(0)->padcfg[int_reg]), value);
+    uint32_t reg_offset = (uint32_t) GPIO_INTEN_00_31_OFFSET + dev_offset;
+    return GAP_READ(base, reg_offset);
 }
 
-static inline uint32_t gpio_padcfg_get(uint8_t int_reg)
+static inline void gpio_inten_set(uint32_t base, uint32_t dev_offset, uint32_t value)
 {
-    return hal_read32(&(gpio(0)->padcfg[int_reg]));
+    uint32_t reg_offset = (uint32_t) GPIO_INTEN_00_31_OFFSET + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
 }
+
+
+/** INTTYPE Register. */
+/* TODO : Check inttype offset. */
+static inline uint32_t gpio_inttype_get(uint32_t base, uint32_t dev_offset,
+                                        uint32_t reg_id)
+{
+    uint32_t reg_offset = (uint32_t) GPIO_INTTYPE_00_15_OFFSET + (reg_id << 2) + dev_offset;
+    return GAP_READ(base, reg_offset);
+}
+
+static inline void gpio_inttype_set(uint32_t base, uint32_t dev_offset,
+                                    uint32_t reg_id, uint32_t value)
+{
+    uint32_t reg_offset = (uint32_t) GPIO_INTTYPE_00_15_OFFSET + (reg_id << 2) + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
+}
+
+
+/** INTSTATUS Register. */
+static inline uint32_t gpio_intstatus_get(uint32_t base, uint32_t dev_offset)
+{
+    uint32_t reg_offset = (uint32_t) GPIO_INTSTATUS_00_31_OFFSET + dev_offset;
+    return GAP_READ(base, reg_offset);
+}
+
+static inline void gpio_intstatus_set(uint32_t base, uint32_t dev_offset, uint32_t value)
+{
+    uint32_t reg_offset = (uint32_t) GPIO_INTSTATUS_00_31_OFFSET + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
+}
+
+
+/** PADCFG Register. */
+static inline uint32_t gpio_padcfg_get(uint32_t base, uint32_t dev_offset,
+                                       uint32_t reg_id)
+{
+    uint32_t reg_offset = (uint32_t) GPIO_PADCFG_00_07_OFFSET + (reg_id << 2) + dev_offset;
+    return GAP_READ(base, reg_offset);
+}
+
+static inline void gpio_padcfg_set(uint32_t base, uint32_t dev_offset,
+                                   uint32_t reg_id, uint32_t value)
+{
+    uint32_t reg_offset = (uint32_t) GPIO_PADCFG_00_07_OFFSET + (reg_id << 2) + dev_offset;
+    GAP_WRITE(base, reg_offset, value);
+}
+
 
 
 /*! Paddir. */
-/*
+/**
  * Set direction mode of a GPIO pad.
- * 0 = Input | 1 = Output.
+ * 0 = Input
+ * 1 = Output.
  */
-static inline void hal_gpio_pin_direction_set(uint8_t gpio_pin, uint8_t dir)
+static inline void hal_gpio_pin_direction_set(uint32_t device_id, uint8_t gpio_pin,
+                                              uint8_t dir)
 {
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
     uint32_t mask = 0x1, shift = gpio_pin;
-    uint32_t val = gpio_paddir_get();
-    val = ((val & ~(mask << shift)) | (dir << shift));
-    gpio_paddir_set(val);
+    uint32_t val = gpio_paddir_get(base, dev_offset);
+    val &= ~(mask << shift);
+    val |= (dir << shift);
+    gpio_paddir_set(base, dev_offset, val);
 }
 
-static inline void hal_gpio_direction_set(uint32_t gpio_mask, uint8_t dir)
+static inline void hal_gpio_direction_set(uint32_t device_id, uint32_t gpio_mask,
+                                          uint8_t dir)
 {
-    uint32_t val = gpio_paddir_get();
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t val = gpio_paddir_get(base, dev_offset);
     if (dir)
     {
         val |= gpio_mask;
@@ -167,132 +212,37 @@ static inline void hal_gpio_direction_set(uint32_t gpio_mask, uint8_t dir)
     {
         val &= ~gpio_mask;
     }
-    gpio_paddir_set(val);
+    gpio_paddir_set(base, dev_offset, val);
 }
 
-
-/*! Padin. */
-/* GPIO pad input value. */
-static inline uint32_t hal_gpio_pin_input_value_get(uint8_t gpio_pin)
+static inline uint32_t hal_gpio_direction_get(uint32_t device_id)
 {
-    uint32_t mask = 0x1, shift = gpio_pin;
-    uint32_t val = gpio_padin_get();
-    val = ((val >> shift) & mask);
-    return val;
-}
-
-static inline uint32_t hal_gpio_input_value_get()
-{
-    return gpio_padin_get();
-}
-
-
-/*! Padout. */
-/* GPIO pad output value. */
-static inline void hal_gpio_pin_output_value_set(uint8_t gpio_pin, uint8_t value)
-{
-    uint32_t mask = 0x1, shift = gpio_pin;
-    uint32_t val = gpio_padout_get();
-    val = ((val & ~(mask << shift)) | (value << shift));
-    gpio_padout_set(val);
-}
-
-static inline void hal_gpio_output_value_set(uint32_t gpio_mask, uint8_t value)
-{
-    uint32_t val = gpio_padout_get();
-    if (value)
-    {
-        val |= gpio_mask;
-    }
-    else
-    {
-        val &= ~gpio_mask;
-    }
-    gpio_padout_set(val);
-}
-
-static inline uint32_t hal_gpio_pin_output_value_get(uint8_t gpio_pin)
-{
-    uint32_t mask = 0x1, shift = gpio_pin;
-    uint32_t val = gpio_padout_get();
-    val = ((val >> shift) & mask);
-    return val;
-}
-
-static inline uint32_t hal_gpio_output_value_get(uint32_t gpio_mask)
-{
-    uint32_t val = gpio_padout_get();
-    val = (val & gpio_mask);
-    return val;
-}
-
-
-/*! Inten. */
-/* Enable GPIO pad interruption. */
-static inline void hal_gpio_pin_irq_set(uint8_t gpio_pin, uint8_t enable)
-{
-    uint32_t mask = 0x1, shift = gpio_pin;
-    uint32_t val = gpio_inten_get();
-    val = ((val & ~(mask << shift)) | (enable << shift));
-    gpio_inten_set(val);
-}
-
-static inline void hal_gpio_irq_set(uint32_t gpio_mask, uint8_t enable)
-{
-    uint32_t val = gpio_inten_get();
-    if (enable)
-    {
-        val |= gpio_mask;
-    }
-    else
-    {
-        val &= ~gpio_mask;
-    }
-    gpio_inten_set(val);
-}
-
-
-/*! Inttype. */
-/* GPIO pad interruption type configuration. */
-static inline void hal_gpio_pin_irq_type_set(uint8_t gpio_pin, uint8_t irq_type)
-{
-    uint8_t gpio_reg = (gpio_pin >> 4), gpio_pos = (gpio_pin & 0x0F);
-    uint32_t mask = 0x3, shift = (gpio_pos << 1);
-    uint32_t val = gpio_inttype_get(gpio_reg);
-    val = ((val & ~(mask << shift)) | (irq_type << shift));
-    gpio_inttype_set(gpio_reg, val);
-}
-
-
-/*! Intstatus. */
-/* GPIO interruption status. */
-static inline uint32_t hal_gpio_pin_irq_status_get(uint8_t gpio_pin)
-{
-    uint32_t mask = 0x1, shift = gpio_pin;
-    uint32_t val = gpio_intstatus_get();
-    val = ((val >> shift) & mask);
-    return val;
-}
-
-static inline uint32_t hal_gpio_irq_status_get()
-{
-    return gpio_intstatus_get();
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_paddir_get(base, dev_offset);
 }
 
 
 /*! Gpioen. */
 /* Enable a GPIO pad. */
-static inline void hal_gpio_pin_enable(uint8_t gpio_pin, uint8_t enable)
+static inline void hal_gpio_pin_enable(uint32_t device_id, uint8_t gpio_pin,
+                                       uint8_t enable)
 {
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
     uint32_t mask = 0x1, shift = gpio_pin;
-    uint32_t val = gpio_gpioen_get();
-    val = ((val & ~(mask << shift)) | (enable << shift));
-    gpio_gpioen_set(val);
+    uint32_t val = gpio_gpioen_get(base, dev_offset);
+    val &= ~(mask << shift);
+    val |= (enable << shift);
+    gpio_gpioen_set(base, dev_offset, val);
 }
 
-static inline void hal_gpio_enable(uint32_t gpio_mask, uint8_t enable)
+static inline void hal_gpio_enable(uint32_t device_id, uint32_t gpio_mask,
+                                   uint8_t enable)
 {
-    uint32_t val = gpio_gpioen_get();
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t val = gpio_gpioen_get(base, dev_offset);
     if (enable)
     {
         val |= gpio_mask;
@@ -301,54 +251,218 @@ static inline void hal_gpio_enable(uint32_t gpio_mask, uint8_t enable)
     {
         val &= ~gpio_mask;
     }
-    gpio_gpioen_set(val);
+    gpio_gpioen_set(base, dev_offset, val);
+}
+
+static inline uint32_t hal_gpio_enable_get(uint32_t device_id)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_gpioen_get(base, dev_offset);
+}
+
+
+/*! Padin. */
+/* GPIO pad input value. */
+static inline uint32_t hal_gpio_pin_input_value_get(uint32_t device_id,
+                                                    uint8_t gpio_pin)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t mask = 0x1, shift = gpio_pin;
+    uint32_t val = gpio_padin_get(base, dev_offset);
+    return ((val >> shift) & mask);
+}
+
+static inline uint32_t hal_gpio_input_value_get(uint32_t device_id)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_padin_get(base, dev_offset);
+}
+
+
+/*! Padout. */
+/* GPIO pad output value. */
+static inline void hal_gpio_output_value_set(uint32_t device_id, uint32_t gpio_mask,
+                                             uint8_t value)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    if (value)
+    {
+        gpio_padout_set(base, dev_offset, gpio_mask);
+    }
+    else
+    {
+        gpio_padout_clear(base, dev_offset, gpio_mask);
+    }
+}
+
+static inline void hal_gpio_pin_output_value_set(uint32_t device_id, uint8_t gpio_pin,
+                                                 uint8_t value)
+{
+    hal_gpio_output_value_set(device_id, (1 << gpio_pin), value);
+}
+
+static inline uint32_t hal_gpio_output_value_get(uint32_t device_id)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_padout_get(base, dev_offset);
+}
+
+
+/*! Inten. */
+/* Enable GPIO pad interruption. */
+static inline void hal_gpio_pin_irq_set(uint32_t device_id, uint8_t gpio_pin,
+                                        uint8_t enable)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t mask = 0x1, shift = gpio_pin;
+    uint32_t val = gpio_inten_get(base, dev_offset);
+    val &= ~(mask << shift);
+    val |= (enable << shift);
+    gpio_inten_set(base, dev_offset, val);
+}
+
+static inline void hal_gpio_irq_set(uint32_t device_id, uint32_t gpio_mask,
+                                    uint8_t enable)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t val = gpio_inten_get(base, dev_offset);
+    if (enable)
+    {
+        val |= gpio_mask;
+    }
+    else
+    {
+        val &= ~gpio_mask;
+    }
+    gpio_inten_set(base, dev_offset, val);
+}
+
+static inline uint32_t hal_gpio_irq_get(uint32_t device_id)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_inten_get(base, dev_offset);
+}
+
+
+/*! Inttype. */
+/* GPIO pad interruption type configuration. */
+static inline void hal_gpio_pin_irq_type_set(uint32_t device_id, uint8_t gpio_pin,
+                                             uint8_t irq_type)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t reg_offset = (gpio_pin >> 4);
+    uint32_t mask = 0x3, shift = (gpio_pin << 1);
+    uint32_t val = gpio_inttype_get(base, dev_offset, reg_offset);
+    val &= ~(mask << shift);
+    val |= (irq_type << shift);
+    gpio_inttype_set(base, dev_offset, reg_offset, val);
+}
+
+static inline uint32_t hal_gpio_irq_type_get(uint32_t device_id,
+                                             uint32_t reg_offset)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_inttype_get(base, dev_offset, reg_offset);
+}
+
+
+/*! Intstatus. */
+/* GPIO interruption status. */
+static inline uint32_t hal_gpio_pin_irq_status_get(uint32_t device_id,
+                                                   uint8_t gpio_pin)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t mask = 0x1, shift = gpio_pin;
+    uint32_t val = gpio_intstatus_get(base, dev_offset);
+    return ((val >> shift) & mask);
+}
+
+static inline uint32_t hal_gpio_irq_status_get(uint32_t device_id)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_intstatus_get(base, dev_offset);
 }
 
 
 /*! Padcfg. */
 /* Enable GPIO pad pull. */
-static inline void hal_gpio_pin_pull_enable(uint8_t gpio_pin, uint8_t pe)
+static inline void hal_gpio_pin_pull_enable(uint32_t device_id, uint8_t gpio_pin,
+                                            uint8_t pe)
 {
-    uint8_t gpio_reg = (gpio_pin >> 2), gpio_pos = (gpio_pin & 0x03);
-    uint32_t mask = 0x1, shift = (gpio_pos << 3);
-    uint32_t val = gpio_padcfg_get(gpio_reg);
-    val = ((val & ~(mask << shift)) | (pe << shift));
-    gpio_padcfg_set(gpio_reg, val);
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t reg_offset = ARCHI_GPIO_PADCFG_REG_OFFSET(gpio_pin);
+    uint32_t pin_offset = ARCHI_GPIO_PADCFG_POS_OFFSET(gpio_pin);
+    uint32_t mask = 0x1, shift = (pin_offset << ARCHI_GPIO_NB_PADCFG_REG_LOG2);
+    uint32_t val = gpio_padcfg_get(base, dev_offset, reg_offset);
+    val &= ~(mask << shift);
+    val |= (pe << shift);
+    gpio_padcfg_set(base, dev_offset, reg_offset, val);
 }
 
 /* Set GPIO pad drive strength. */
-static inline void hal_gpio_pin_drive_strength_set(uint8_t gpio_pin, uint8_t ds)
+static inline void hal_gpio_pin_drive_strength_set(uint32_t device_id, uint8_t gpio_pin,
+                                                   uint8_t ds)
 {
-    uint8_t gpio_reg = (gpio_pin >> 2), gpio_pos = (gpio_pin & 0x03);
-    uint32_t mask = 0x2, shift = (gpio_pos << 3);
-    uint32_t val = gpio_padcfg_get(gpio_reg);
-    val = ((val & ~(mask << shift)) | ((ds << 1) << shift));
-    gpio_padcfg_set(gpio_reg, val);
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t reg_offset = ARCHI_GPIO_PADCFG_REG_OFFSET(gpio_pin);
+    uint32_t pin_offset = ARCHI_GPIO_PADCFG_POS_OFFSET(gpio_pin);
+    uint32_t mask = 0x2, shift = (pin_offset << ARCHI_GPIO_NB_PADCFG_REG_LOG2);
+    uint32_t val = gpio_padcfg_get(base, dev_offset, reg_offset);
+    val &= ~(mask << shift);
+    val |= ((ds << 1) << shift);
+    gpio_padcfg_set(base, dev_offset, reg_offset, val);
 }
 
 /* GPIO pad pull activation & GPIO pad drive strength. */
-static inline void hal_gpio_pin_config_set(uint8_t gpio_pin, uint8_t pe, uint8_t ds)
+static inline void hal_gpio_pin_config_set(uint32_t device_id, uint8_t gpio_pin,
+                                           uint8_t pe, uint8_t ds)
 {
-    uint8_t gpio_reg = (gpio_pin >> 2), gpio_pos = (gpio_pin & 0x03);
-    uint32_t mask = 0x3, shift = (gpio_pos << 3);
-    uint32_t val = gpio_padcfg_get(gpio_reg);
-    val = ((val & ~(mask << shift)) | (((ds << 1) | pe) << shift));
-    gpio_padcfg_set(gpio_reg, val);
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    uint32_t reg_offset = ARCHI_GPIO_PADCFG_REG_OFFSET(gpio_pin);
+    uint32_t pin_offset = ARCHI_GPIO_PADCFG_POS_OFFSET(gpio_pin);
+    uint32_t mask = 0x3, shift = (pin_offset << ARCHI_GPIO_NB_PADCFG_REG_LOG2);
+    uint32_t val = gpio_padcfg_get(base, dev_offset, reg_offset);
+    val &= ~(mask << shift);
+    val |= (((ds << 1) | pe) << shift);
+    gpio_padcfg_set(base, dev_offset, reg_offset, val);
 }
 
-static inline void hal_gpio_config_set(uint32_t gpio_mask, uint8_t pe, uint8_t ds)
+static inline void hal_gpio_config_set(uint32_t device_id, uint32_t gpio_mask,
+                                       uint8_t pe, uint8_t ds)
 {
-    uint32_t mask = gpio_mask, pin = 0;
+    uint32_t mask = gpio_mask;
+    uint8_t gpio_pin = 0;
     while (mask)
     {
         if (mask & 0x1)
         {
-            hal_gpio_pin_config_set(pin, pe, ds);
+	    hal_gpio_pin_config_set(device_id, gpio_pin, pe, ds);
         }
         mask = mask >> 1;
-        pin++;
+        gpio_pin++;
     }
 }
 
+static inline uint32_t hal_gpio_config_get(uint32_t device_id, uint32_t gpio_reg)
+{
+    uint32_t base = (uint32_t) gpio(0);
+    uint32_t dev_offset = (uint32_t) ARCHI_GPIO_DEVICE_OFFSET(device_id);
+    return gpio_padcfg_get(base, dev_offset, gpio_reg);
+}
 
-#endif  /* __PI_HAL_GPIO_H__ */
+#endif  /* __PMSIS_IMPLEM_HAL_GPIO_GPIO_H__ */

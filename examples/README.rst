@@ -1,11 +1,12 @@
-.. _examples:
+.. _sdk_examples:
 
 Examples
 ========
 
-TODO
+Examples for GAP series processors.
 
 .. toctree::
    :maxdepth: 1
 
-   pmsis/README.rst
+   gap8/README.rst
+   gap9/README.rst

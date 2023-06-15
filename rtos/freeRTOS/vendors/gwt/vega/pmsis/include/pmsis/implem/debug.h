@@ -81,6 +81,14 @@
 #define I2S_TRACE_ERR(...)         ((void) 0)
 #endif  /* TRACE_I2S */
 
+#if defined(TRACE_I3C)
+#define I3C_TRACE(...)             PI_LOG_DBG(__func__, __VA_ARGS__)
+#define I3C_TRACE_ERR(...)         PI_LOG_ERR(__func__, __VA_ARGS__)
+#else
+#define I3C_TRACE(...)             ((void) 0)
+#define I3C_TRACE_ERR(...)         ((void) 0)
+#endif  /* TRACE_I3C */
+
 #if defined(TRACE_PAD)
 #define PAD_TRACE(...)             PI_LOG_DBG(__func__, __VA_ARGS__)
 #define PAD_TRACE_ERR(...)         PI_LOG_ERR(__func__, __VA_ARGS__)

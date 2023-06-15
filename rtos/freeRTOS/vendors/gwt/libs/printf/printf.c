@@ -58,12 +58,14 @@
 #define PRINTF_FTOA_BUFFER_SIZE    32U
 #endif
 
+//#define PRINTF_DISABLE_SUPPORT_FLOAT
 // support for the floating point type (%f)
 // default: activated
 #ifndef PRINTF_DISABLE_SUPPORT_FLOAT
 #define PRINTF_SUPPORT_FLOAT
 #endif
 
+//#define PRINTF_DISABLE_SUPPORT_EXPONENTIAL
 // support for exponential floating point notation (%e/%g)
 // default: activated
 #ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
@@ -82,6 +84,7 @@
 #define PRINTF_MAX_FLOAT  1e9
 #endif
 
+#define PRINTF_DISABLE_SUPPORT_LONG_LONG
 // support for the long long types (%llu or %p)
 // default: activated
 #ifndef PRINTF_DISABLE_SUPPORT_LONG_LONG
@@ -93,12 +96,6 @@
 // default: activated
 #ifndef PRINTF_DISABLE_SUPPORT_PTRDIFF_T
 #define PRINTF_SUPPORT_PTRDIFF_T
-#endif
-
-// add lock and unlock functions to protect io operations
-// default: deactivated
-#ifdef PRINTF_ENABLE_LOCK
-//#define PRINTF_IO_LOCK
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -867,17 +864,11 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
 
 int printf_(const char* format, ...)
 {
-#if defined(PRINTF_IO_LOCK)
-  __io_lock();
-#endif
   va_list va;
   va_start(va, format);
   char buffer[1];
   const int ret = _vsnprintf(_out_char, buffer, (size_t)-1, format, va);
   va_end(va);
-#if defined(PRINTF_IO_LOCK)
-  __io_unlock();
-#endif
   return ret;
 }
 

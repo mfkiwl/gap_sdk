@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, GreenWaves Technologies, Inc.
+ * Copyright (c) 2021, GreenWaves Technologies, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,11 +32,11 @@
 
 #include "pmsis/implem/cluster/dma/cl_dma.h"
 
-void pi_cl_dma_2d_handler()
+void pi_cl_dma_2d_handler(void)
 {
     pi_cl_dma_cmd_t *copy = fifo_first;
+    hal_cl_dma_tid_free(0, copy->tid);
     hal_compiler_barrier();
-    hal_cl_dma_tid_free(copy->tid);
     if (!copy->size)
     {
         fifo_first = fifo_first->next;
@@ -54,15 +54,17 @@ void pi_cl_dma_2d_handler()
     if ((copy != NULL) && (copy->size))
     {
         uint32_t iter_length = (copy->size < copy->length) ? copy->size : copy->length;
-        uint32_t dma_cmd = copy->cmd | (iter_length << DMAMCHAN_CMD_LEN_Pos);
+        uint32_t dma_cmd = copy->cmd | (iter_length << CL_DMA_LEN_SHIFT);
         uint32_t loc = copy->loc;
         uint32_t ext = copy->ext;
         hal_compiler_barrier();
         copy->loc = loc + iter_length;
         copy->ext = ext + copy->stride;
         copy->size = copy->size - iter_length;
-        copy->tid = hal_cl_dma_tid_get();
-        hal_cl_dma_1d_transfer_push(dma_cmd, loc, ext);
+        copy->tid = hal_cl_dma_tid_get(0);
+        hal_compiler_barrier();
+        hal_cl_dma_1d_transfer_push(0, dma_cmd, loc, ext);
+        hal_compiler_barrier();
     }
     hal_compiler_barrier();
 }

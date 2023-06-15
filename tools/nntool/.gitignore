@@ -1,10 +1,10 @@
 build/
-flatbuffers/
 *.xlsx
 *.xls
 __pycache__
 .pytest_cache/
 .value_cache/
+.ipynb_checkpoints/
 .vscode/
 sample_project/version.log
 .orig
@@ -15,3 +15,8 @@ importer/tflite
 .env
 gsync
 tempdir/
+notebooks/
+utils_nocheckin/
+graphs_nocheckin/
+schema_ui/
+bash_util.sh

@@ -1,42 +1,41 @@
-#! /bin/bash
-
 export PULP_SDK_HOME=$GAP_SDK_HOME
 
-if [ -n "$GAP_RISCV_GCC_TOOLCHAIN_BASE" ]; then
-    export GAP_RISCV_GCC_TOOLCHAIN=$GAP_RISCV_GCC_TOOLCHAIN_BASE/1.4
+if [ -n "${GAP_RISCV_GCC_TOOLCHAIN_BASE-}" ]; then
+    export GAP_RISCV_GCC_TOOLCHAIN=$GAP_RISCV_GCC_TOOLCHAIN_BASE/1.8
 fi
 
-if [ -z "$GAP_RISCV_GCC_TOOLCHAIN" ]; then
+if [ -z "${GAP_RISCV_GCC_TOOLCHAIN-}" ]; then
     export GAP_RISCV_GCC_TOOLCHAIN=/usr/lib/gap_riscv_toolchain
 fi
 
-export PATH="$GAP_RISCV_GCC_TOOLCHAIN/bin":"$GAP_SDK_HOME/tools/bin":$PATH
+export PATH="$GAP_RISCV_GCC_TOOLCHAIN/bin":"$GAP_SDK_HOME/utils/bin":$PATH
 
 export TARGET_INSTALL_DIR=$GAP_SDK_HOME/install/$TARGET_CHIP
 export INSTALL_DIR=$GAP_SDK_HOME/install/workstation
 export DEP_DIRS=$INSTALL_DIR
-export RULES_DIR=$GAP_SDK_HOME/tools/rules
+export RULES_DIR=$GAP_SDK_HOME/utils/rules
 
 export NNTOOL_DIR=$GAP_SDK_HOME/tools/nntool
-export NNTOOL_PATH=$GAP_SDK_HOME/tools/nntool
+export NNTOOL_PATH=$GAP_SDK_HOME/tools/nntool/scripts
 export NNTOOL_KERNELS_PATH=$NNTOOL_DIR/autotiler/kernels
 export NNTOOL_MATH_PATH=$NNTOOL_DIR/autotiler/math_funcs
 export NNTOOL_GENERATOR_PATH=$NNTOOL_DIR/autotiler/generators
 export PATH=$PATH:"$GAP_SDK_HOME"
-export PATH=$PATH:"$NNTOOL_DIR"
+export PATH="$NNTOOL_PATH":$PATH
+export PYTHONPATH="$NNTOOL_DIR":$PYTHONPATH
 
 # OpenMP
-export OPENMP_DIR="$GAP_SDK_HOME/rtos/openmp"
+export OPENMP_DIR="$GAP_SDK_HOME/libs/openmp"
 
 # PulpOS 2
 export PULPOS_HOME=$GAP_SDK_HOME/rtos/pulp/pulpos-2
-export PULPOS_MODULES="$GAP_SDK_HOME/rtos/pulp/pulpos-2_gap8 $GAP_SDK_HOME/rtos/pulp/pulpos-2_gap9 $GAP_SDK_HOME/rtos/pmsis/pmsis_bsp $OPENMP_DIR $GAP_SDK_HOME/rtos/sfu"
+export PULPOS_MODULES="$GAP_SDK_HOME/rtos/pmsis/implem $GAP_SDK_HOME/rtos/pulp/pulpos-2_gap8 $GAP_SDK_HOME/rtos/pulp/pulpos-2_gap9 $GAP_SDK_HOME/rtos/pmsis/bsp $OPENMP_DIR $GAP_SDK_HOME/rtos/sfu"
 export PULPOS_GAP8_HOME=$GAP_SDK_HOME/rtos/pulp/pulpos-2_gap8
 export PULPOS_GAP9_HOME=$GAP_SDK_HOME/rtos/pulp/pulpos-2_gap9
 export GAP_PULPOS_ARCHI=$GAP_SDK_HOME/rtos/pulp/gap_archi
 export PULPOS_ARCHI=$GAP_SDK_HOME/rtos/pulp/archi_pulp
 export PULPOS_HAL=$GAP_SDK_HOME/rtos/pulp/hal_pulp
-export PMSIS_API=$GAP_SDK_HOME/rtos/pmsis/pmsis_api
+export PMSIS_API=$GAP_SDK_HOME/rtos/pmsis/api
 
 # SFU
 export SFU_RUNTIME=$GAP_SDK_HOME/rtos/sfu
@@ -46,10 +45,11 @@ export PATH=$GAP_SDK_HOME/tools/sfu_gen/install/bin:$PATH
 export PULP_LIB_DIR=$TARGET_INSTALL_DIR/lib
 export PULP_INC_DIR=$TARGET_INSTALL_DIR/include
 export RUNTIME_PATH=$GAP_SDK_HOME/pulp-os
-# For mbed os
-export MBED_PATH=$GAP_SDK_HOME/rtos
 # For FreeRTOS
 export FREERTOS_PATH=$GAP_SDK_HOME/rtos/freeRTOS
+
+# For PMSIS
+export PMSIS_HOME=$GAP_SDK_HOME/rtos/pmsis
 
 export PATH="$INSTALL_DIR/bin":$PATH
 export LD_LIBRARY_PATH="$INSTALL_DIR/lib":$LD_LIBRARY_PATH
@@ -61,13 +61,27 @@ export PULP_RISCV_GCC_TOOLCHAIN=$GAP_RISCV_GCC_TOOLCHAIN
 export PULP_SDK_INSTALL=$INSTALL_DIR
 export GVSOC_PATH=$INSTALL_DIR/python
 export GVSOC_ISS_PATH=$GAP_SDK_HOME/gvsoc/gvsoc/models/cpu/iss
-export XTENSOR_INCLUDE_DIR=$GAP_SDK_HOME/ext/xtensor/include
+export XTENSOR_INCLUDE_DIR=$GAP_SDK_HOME/gvsoc/ext/xtensor/include
+export GVSOC_SRC_PATH=$GAP_SDK_HOME/gvsoc/gvsoc
+export GVSOC_GAP_SRC_PATH=$GAP_SDK_HOME/gvsoc/gvsoc_gap
 export GVSOC_SFU_PATH=$GAP_SDK_HOME/gvsoc/gvsoc_gap_sfu
 source $GAP_SDK_HOME/gvsoc/setup_gvsoc.sh
-if [ -e "$GAP_SDK_HOME/configs/skip_udma_build" ]; then
+if [ -d "$GAP_SDK_HOME/gvsoc/gvsoc_libs" ]; then
     export CONFIG_GVSOC_SKIP_UDMA_BUILD=1
 fi
 export PYTHONPATH=$GAP_SDK_HOME/gvsoc/gvsoc_gap/models:$PYTHONPATH
+export PYTHONPATH=$GAP_SDK_HOME/gvsoc/gvsoc/engine/python:$PYTHONPATH
+export PYTHONPATH=$GAP_SDK_HOME/gvsoc/gvsoc/generators:$PYTHONPATH
+export PYTHONPATH=$GAP_SDK_HOME/gvsoc/gvsoc_gap/generators:$PYTHONPATH
+
+# gaptest
+
+export PATH="$GAP_SDK_HOME/utils/gaptest":$PATH
+
+# Audio framework
+export GAP_AUDIO_FRAMEWORK_HOME=$GAP_SDK_HOME/tools/audio-framework
+export PYTHONPATH=$GAP_AUDIO_FRAMEWORK_HOME/frontends/python_graph_generator:$GAP_AUDIO_FRAMEWORK_HOME/components:$PYTHONPATH
+
 
 # Autotiler
 export AT_HOME=$GAP_SDK_HOME/tools/autotiler_v3
@@ -100,7 +114,7 @@ export TILER_FFT_GEN_LUT_SCRIPT=$TILER_PATH/DSP_Libraries/LUT_Tables/gen_scripts
 export TILER_WIN_GEN_LUT_SCRIPT=$TILER_PATH/DSP_Libraries/LUT_Tables/gen_scripts/GenWinLUT.py
 
 # OpenOCD
-export GAP_OPENOCD_TOOLS=$GAP_SDK_HOME/tools/gap8-openocd-tools
+export GAP_OPENOCD_TOOLS=$GAP_SDK_HOME/utils/openocd_tools
 export GAP_USE_OPENOCD=1
 
 # Zephyr
@@ -108,10 +122,10 @@ export CROSS_COMPILE="$GAP_RISCV_GCC_TOOLCHAIN/bin/riscv32-unknown-elf-"
 export ZEPHYR_GCC_VARIANT=cross-compile
 
 # Gapy
-export PATH=$GAP_SDK_HOME/tools/gapy:$PATH
-export PYTHONPATH=$GAP_SDK_HOME/tools/gap-configs/python:$PYTHONPATH
-export PYTHONPATH=$GAP_SDK_HOME/tools/gapy:$PYTHONPATH
-export PULP_CONFIGS_PATH=$GAP_SDK_HOME/tools/gap-configs/configs:$PULP_CONFIGS_PATH
+export PATH=$GAP_SDK_HOME/utils/gapy:$PATH
+export PYTHONPATH=$GAP_SDK_HOME/utils/gap_configs/python:$PYTHONPATH
+export PYTHONPATH=$GAP_SDK_HOME/utils/gapy:$PYTHONPATH
+export PULP_CONFIGS_PATH=$GAP_SDK_HOME/utils/gap_configs/configs:$PULP_CONFIGS_PATH
 
 # GAP LIB
 export GAP_LIB_PATH=$GAP_SDK_HOME/libs/gap_lib
@@ -131,4 +145,8 @@ else
         export XCSIM_PATH=$PROJECT_PATH/sim/xcsim
         export XCSIM_PLATFORM=$XCSIM_PATH
     fi
+fi
+
+if [ -f "$GAP_SDK_HOME/configs/wsl.sh" ]; then
+    source $GAP_SDK_HOME/configs/wsl.sh
 fi

@@ -44,13 +44,18 @@
  * API implementation
  ******************************************************************************/
 
-void pi_cl_team_prepare_fork(int nb_cores)
+extern void __pi_cl_irq_handler(void);
+extern uint8_t __irq_cluster_vector_base_m__;
+PI_L2 uint32_t __pi_cl_irq_handlers[32] = {0};
+
+void pi_cl_irq_handler_set(uint32_t irq, void (*handler)())
 {
-    uint32_t team_core_mask = 0;
-    uint32_t master_core_mask = (1 << ARCHI_CLUSTER_MASTER_CORE);
-    if (nb_cores != 0)
-    {
-        team_core_mask = ((1 << (uint32_t) nb_cores) - 1);
-        __pi_cl_team_config_set(team_core_mask);
-    }
+    __pi_cl_irq_handlers[irq] = (uint32_t) handler;
+    pi_cl_irq_handler_fast_set(irq, __pi_cl_irq_handler);
+}
+
+void pi_cl_irq_handler_fast_set(uint32_t irq, void (*handler)())
+{
+    uint32_t *cl_mtvec = (uint32_t *) &__irq_cluster_vector_base_m__;
+    cl_mtvec[irq] = pi_irq_get_itvec((uint32_t) cl_mtvec, irq, (uint32_t) handler);
 }

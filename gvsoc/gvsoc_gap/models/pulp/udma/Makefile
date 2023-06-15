@@ -50,6 +50,11 @@ endif
 ifeq '$(udma/i2c/version)' '4'
 pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_CFLAGS += -DHAS_I2C
 pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_SRCS += pulp/udma/i2c/v4/udma_i2c.cpp
+pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_SRCS += pulp/udma/i2c/v4/udma_i2c_ucode.cpp
+pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_SRCS += pulp/udma/i2c/v4/udma_i2c_fifos.cpp
+
+pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_SRCS += $(GVSOC_SRC_PATH)/models/devices/i2c/helper/i2c_helper.cpp
+pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_CFLAGS += -I$(GVSOC_SRC_PATH)/models/devices/i2c/helper/
 endif
 
 
@@ -73,12 +78,6 @@ pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_CFLAGS += -DHAS_I2S
 pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_SRCS += pulp/udma/i2s/udma_i2s_v3.cpp
 endif
 
-
-
-ifeq '$(udma/mram/version)' '1'
-pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_CFLAGS += -DHAS_MRAM
-pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_SRCS += pulp/udma/mram/udma_mram_v1.cpp
-endif
 
 ifeq '$(udma/tcdm/version)' '1'
 pulp/udma/udma_v$(udma/version)_$(pulp_chip_family)_impl_CFLAGS += -DHAS_TCDM
@@ -142,6 +141,4 @@ endif
 
 endif
 
-ifeq '$(udma/hyper/version)' '3'
-VP_HEADERS += pulp/udma/hyper/udma_hyper_v3_refill.hpp
-endif
+VP_HEADERS += pulp/udma/udma_mem_refill.hpp

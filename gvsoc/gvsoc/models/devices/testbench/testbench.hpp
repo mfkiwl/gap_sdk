@@ -228,6 +228,7 @@ typedef enum
 {
     PI_TESTBENCH_I2S_VERIF_RX_FILE_READER_TYPE_RAW,
     PI_TESTBENCH_I2S_VERIF_RX_FILE_READER_TYPE_WAV,
+    PI_TESTBENCH_I2S_VERIF_RX_FILE_READER_TYPE_BIN,
     PI_TESTBENCH_I2S_VERIF_RX_FILE_READER_TYPE_AU,
 } pi_testbench_i2s_verif_start_config_rx_file_reader_type_e;
 
@@ -235,9 +236,15 @@ typedef enum
 {
     PI_TESTBENCH_I2S_VERIF_TX_FILE_DUMPER_TYPE_RAW,
     PI_TESTBENCH_I2S_VERIF_TX_FILE_DUMPER_TYPE_WAV,
+    PI_TESTBENCH_I2S_VERIF_TX_FILE_DUMPER_TYPE_BIN,
     PI_TESTBENCH_I2S_VERIF_TX_FILE_DUMPER_TYPE_AU,
 } pi_testbench_i2s_verif_start_config_tx_file_dumper_type_e;
 
+typedef enum
+{
+    PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_ASIS = 0, // Keep as is (default)
+    PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_PLUSMINUS, // Assume file contains -1/+1 values (usable for PDM only)
+} pi_testbench_i2s_verif_start_config_file_encoding_type_e;
 
 // This structure can be used to describe what an I2S slot should do
 typedef struct
@@ -259,6 +266,7 @@ typedef struct
             uint32_t filepath_len;
             uint8_t type;
             uint8_t width;
+            uint8_t encoding;
         } tx_file_dumper;
         struct
         {
@@ -267,6 +275,7 @@ typedef struct
             uint32_t filepath_len;
             uint8_t type;
             uint8_t width;
+            uint8_t encoding;
         } rx_file_reader;
     };
 
@@ -475,6 +484,7 @@ public:
     bool is_control_active;
 
     FILE *proxy_file;
+    int req;
 
 private:
 
@@ -578,11 +588,13 @@ public:
 
     int build();
     void start();
-    std::string handle_command(FILE *req_file, FILE *reply_file, std::vector<std::string> args);
+    std::string handle_command(Gv_proxy *proxy, FILE *req_file, FILE *reply_file, std::vector<std::string> args, std::string req);
 
     void handle_received_byte(uint8_t byte);
 
     void send_byte_done();
+
+    Gv_proxy *proxy;
 
     vp::trace trace;
 

@@ -1,6 +1,4 @@
-#! /bin/bash
-
-if [  -n "${ZSH_VERSION:-}" ]; then 
+if [  -n "${ZSH_VERSION:-}" ]; then
 	DIR="$(readlink -f -- "${(%):-%x}")"
 	DIRNAME="$(dirname $DIR)"
 	GAP_SDK_HOME=$(dirname $DIRNAME)
@@ -11,3 +9,7 @@ else
 fi
 
 export PATH=$GAP_SDK_HOME/install/workstation/openocd/bin:$PATH
+
+# Path to openocd scripts
+export OPENOCD_SCRIPTS=$GAP_SDK_HOME/utils/openocd_tools
+

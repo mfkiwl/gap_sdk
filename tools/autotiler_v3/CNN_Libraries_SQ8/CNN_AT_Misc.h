@@ -1,5 +1,23 @@
+/*
+ * Copyright (C) 2018 GreenWaves Technologies
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #ifndef _CNN_AT_MISC_H_
 #define _CNN_AT_MISC_H_
+
+#define ALIGN(Value, Size)      ((((Value)+(1<<(Size))-1)/(1<<(Size)))*(1<<(Size)))
 
 /*************************************************************************************************************************************************
         AT book keeping functions
@@ -12,7 +30,9 @@ void AT_TileClear(
         int Feat,                       /**< Number of features */
         int Size,                       /**< Tile element size in bytes */
         int Pad,                        /**< Height or width of the area to be 0 padded */
-        int Orientation                 /**< 0: Horizontal tile, 1: Vertical tile */
+        int PadValue,
+        int Orientation,                /**< 0: Horizontal tile, 1: Vertical tile */
+        int IsHWC                       /**< 0: CHW, 1: HWC */
         );
 
 void AT_DumpTensor(
@@ -50,4 +70,22 @@ void AT_ChecksumTensor(
         unsigned int L2_BufferSize,
         void *Addr);
 
+void AT_DumpTensorCompressed(
+        char *NodeName,
+        char *ArgName,
+        int Loc,
+        void *L3_Device,
+        void *L3_Event,
+        int LUTBits,
+        int Sparse,
+        int Dim,
+        int D0,
+        int D1,
+        int D2,
+        int D3,
+        int D4,
+        void *L2_BufferAddr,
+        unsigned int L2_BufferSize,
+        char *Addr,
+        int *ItemAddresses);
 #endif

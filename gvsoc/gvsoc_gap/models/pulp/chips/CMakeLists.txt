@@ -1,0 +1,6 @@
+if("${TARGET_CHIP}" STREQUAL "GAP9_V2")
+    add_subdirectory(gap9_v2)
+endif()
+if("${TARGET_CHIP}" STREQUAL "GAP9_5")
+    add_subdirectory(gap9_5)
+endif()

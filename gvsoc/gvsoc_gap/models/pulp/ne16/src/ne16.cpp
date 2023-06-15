@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-/* 
+/*
  * Authors: Francesco Conti, University of Bologna & GreenWaves Technologies (f.conti@unibo.it)
  *          Germain Haugou, GreenWaves Technologies (germain.haugou@greenwaves-technologies.com)
  */
@@ -47,14 +47,53 @@ void Ne16::reset(bool active)
 {
     // All registers should be initialized here, so that cluster reset is properly working
     // This will be called first with active=1 and then with active=0
-    this->psum_block      = xt::zeros<int64_t>({this->NR_COLUMN, this->COLUMN_SIZE});
-    this->psum_column     = xt::zeros<int64_t>({this->NR_COLUMN});
-    this->accum           = xt::zeros<int64_t>({this->TP_OUT, this->NR_COLUMN});
-    this->x_buffer        = xt::zeros<uint8_t>({this->F_BUFFER_SIZE, this->F_BUFFER_SIZE, this->TP_IN});
-    this->x_buffer_linear = xt::zeros<uint8_t>({32, this->TP_IN});
-    this->x_array         = xt::zeros<uint8_t>({this->NR_COLUMN, this->COLUMN_SIZE, this->TP_IN}); 
-    this->weight          = xt::zeros<uint8_t>({this->FILTER_SIZE*this->FILTER_SIZE, 2});
-    this->nqs             = xt::zeros<uint8_t>({this->TP_OUT});
+
+    for (int32_t j=0; j<this->COLUMN_SIZE; j++) {
+        for (int32_t i=0; i<this->NR_COLUMN; i++) {
+            this->psum_block[i+j*this->NR_COLUMN] = 0;
+        }
+    }
+    for (int32_t i=0; i<this->NR_COLUMN; i++) {
+        this->psum_column[i] = 0;
+    }
+    for (int32_t j=0; j<this->NR_COLUMN; j++) {
+        for (int32_t i=0; i<this->TP_OUT; i++) {
+            this->accum[i+j*this->TP_OUT] = 0;
+        }
+    }
+    for (int32_t k=0; k<this->TP_IN; k++) {
+        for (int32_t j=0; j<this->F_BUFFER_SIZE; j++) {
+            for (int32_t i=0; i<this->F_BUFFER_SIZE; i++) {
+                this->x_buffer[i+j*this->F_BUFFER_SIZE+k*this->F_BUFFER_SIZE*this->F_BUFFER_SIZE] = 0;
+            }
+        }
+    }
+    for (int32_t j=0; j<this->TP_IN; j++) {
+        for (int32_t i=0; i<32; i++) {
+            this->x_buffer_linear[i+j*32] = 0;
+        }
+    }
+    for (int32_t k=0; k<this->TP_IN; k++) {
+        for (int32_t j=0; j<this->COLUMN_SIZE; j++) {
+            for (int32_t i=0; i<this->NR_COLUMN; i++) {
+                this->x_array[i+j*this->NR_COLUMN+k*this->NR_COLUMN*this->COLUMN_SIZE] = 0;
+            }
+        }
+    }
+    for (int32_t j=0; j<2; j++) {
+        for (int32_t i=0; i<(this->FILTER_SIZE * this->FILTER_SIZE); i++) {
+            this->weight[i+j*this->FILTER_SIZE*this->FILTER_SIZE] = 0;
+        }
+    }
+    for (int i=0; i<this->TP_OUT; i++) {
+        this->nqs[i] = 0;
+    }
+
+    this->job_id            = 0;
+    this->cxt_job_id[0]     = this->cxt_job_id[1] = -1;
+    this->running_job_id    = 0;
+    this->job_running       = 0;
+    this->busy.set(0);
 }
 
 // The `hwpe_slave` member function models an access to the NE16 SLAVE interface
@@ -62,7 +101,7 @@ vp::io_req_status_e Ne16::hwpe_slave(void *__this, vp::io_req *req)
 {
     Ne16 *_this = (Ne16 *)__this;
 
-    if (_this->trace_level == L1_CONFIG || _this->trace_level == L2_ACTIV_INOUT || _this->trace_level == L3_ALL) {
+    if (_this->trace_level == L1_ACTIV_INOUT || _this->trace_level == L2_DEBUG || _this->trace_level == L3_ALL) {
       _this->trace.msg(vp::trace::LEVEL_DEBUG, "Received request (addr: 0x%x, size: 0x%x, is_write: %d, data: %p\n", req->get_addr(), req->get_size(), req->get_is_write(), req->get_data());
     }
     uint8_t *data = req->get_data(); // size depends on data get_size
@@ -71,16 +110,16 @@ vp::io_req_status_e Ne16::hwpe_slave(void *__this, vp::io_req *req)
     if(req->get_is_write()) {
         if(((req->get_addr() & 0xfff) - 0x20) >> 2 == NE16_SPECIAL_TRACE_REG) {
             if(*data == 0) {
-                _this->trace_level = L0_JOB_START_END;
-                _this->trace.msg("Setting tracing level to L0_JOB_START_END\n");
+                _this->trace_level = L0_CONFIG;
+                _this->trace.msg("Setting tracing level to L0_CONFIG\n");
             }
             else if(*data == 1) {
-                _this->trace_level = L1_CONFIG;
-                _this->trace.msg("Setting tracing level to L1_CONFIG\n");
+                _this->trace_level = L1_ACTIV_INOUT;
+                _this->trace.msg("Setting tracing level to L1_ACTIV_INOUT\n");
             }
             else if(*data == 2) {
-                _this->trace_level = L2_ACTIV_INOUT;
-                _this->trace.msg("Setting tracing level to L2_ACTIV_INOUT\n");
+                _this->trace_level = L2_DEBUG;
+                _this->trace.msg("Setting tracing level to L2_DEBUG\n");
             }
             else {
                 _this->trace_level = L3_ALL;
@@ -88,14 +127,19 @@ vp::io_req_status_e Ne16::hwpe_slave(void *__this, vp::io_req *req)
             }
             return vp::IO_REQ_OK;
         }
+        else if(((req->get_addr() & 0xfff) - 0x20) >> 2 == NE16_SPECIAL_FORMAT_TRACE_REG) {
+            _this->trace_format = *data;
+            _this->trace.msg("Setting tracing format to %s\n", *data?"Hex":"Dec");
+            return vp::IO_REQ_OK;
+        }
         else if((req->get_addr() & 0x17f) == 0x0) {
             _this->commit();
-            if (!_this->fsm_start_event->is_enqueued() && *(uint32_t *) data == 0) {
+            if (!_this->job_running && !_this->fsm_start_event->is_enqueued() && *(uint32_t *) data == 0) {
                 _this->event_enqueue(_this->fsm_start_event, 1);
             }
         }
         else {
-            if (_this->trace_level == L1_CONFIG || _this->trace_level == L2_ACTIV_INOUT || _this->trace_level == L3_ALL) {
+            if (_this->trace_level == L1_ACTIV_INOUT || _this->trace_level == L2_DEBUG || _this->trace_level == L3_ALL) {
                 _this->trace.msg(vp::trace::LEVEL_DEBUG, "offset: %d data: %08x\n", ((req->get_addr() & 0x17f) - 0x20) >> 2, *(uint32_t *) data);
             }
             _this->regfile_wr(((req->get_addr() & 0x17f) - 0x20)>> 2, *(uint32_t *) data);
@@ -104,19 +148,26 @@ vp::io_req_status_e Ne16::hwpe_slave(void *__this, vp::io_req *req)
     else {
         if((req->get_addr() & 0x17f) == 0x4) {
             *(uint32_t *) data = _this->acquire();
-            if (_this->trace_level == L1_CONFIG || _this->trace_level == L2_ACTIV_INOUT || _this->trace_level == L3_ALL) {
+            if (_this->trace_level == L1_ACTIV_INOUT || _this->trace_level == L2_DEBUG || _this->trace_level == L3_ALL) {
                 _this->trace.msg("Returning %x\n", *(uint32_t *) data);
             }
         }
         else if((req->get_addr() & 0x17f) == 0xc) {
-            *(uint32_t *) data = _this->status() ? 1 : 0;
-            if (_this->trace_level == L1_CONFIG || _this->trace_level == L2_ACTIV_INOUT || _this->trace_level == L3_ALL) {
+            *(uint32_t *) data = ((_this->cxt_job_id[0]>=0?0x1:0)|(_this->cxt_job_id[1]>=0?0x100:0));
+            if (_this->trace_level == L1_ACTIV_INOUT || _this->trace_level == L2_DEBUG || _this->trace_level == L3_ALL) {
+                _this->trace.msg("Returning %x\n", *(uint32_t *) data);
+            }
+        }
+        else if((req->get_addr() & 0x17f) == 0x10) {
+            // Returns the active running job or the last jobid that was run
+            *(uint32_t *) data = _this->running_job_id;
+            if (_this->trace_level == L1_ACTIV_INOUT || _this->trace_level == L2_DEBUG || _this->trace_level == L3_ALL) {
                 _this->trace.msg("Returning %x\n", *(uint32_t *) data);
             }
         }
         else {
             *(uint32_t *) data = _this->regfile_rd(((req->get_addr() & 0x17f) - 0x20) >> 2);
-            if (_this->trace_level == L1_CONFIG || _this->trace_level == L2_ACTIV_INOUT || _this->trace_level == L3_ALL) {
+            if (_this->trace_level == L1_ACTIV_INOUT || _this->trace_level == L2_DEBUG || _this->trace_level == L3_ALL) {
                 _this->trace.msg("Returning %x\n", *(uint32_t *) data);
             }
         }
@@ -128,6 +179,11 @@ vp::io_req_status_e Ne16::hwpe_slave(void *__this, vp::io_req *req)
 int Ne16::build()
 {
     this->traces.new_trace("trace", &this->trace, vp::DEBUG);
+    this->new_reg("fsm_state", &this->state, 32);
+    this->new_reg("ne16_busy", &this->activity, 8);
+    this->new_reg("busy", &this->busy, 1);
+    this->activity.set(0);
+    this->state.set(IDLE);
 
     this->new_master_port("out", &this->out);
 
@@ -140,7 +196,8 @@ int Ne16::build()
     this->fsm_event = this->event_new(&Ne16::fsm_handler);
     this->fsm_end_event = this->event_new(&Ne16::fsm_end_handler);
 
-    this->trace_level = L0_JOB_START_END;
+    this->trace_level = L0_CONFIG;
+    this->trace_format = 1;
 
     return 0;
 }

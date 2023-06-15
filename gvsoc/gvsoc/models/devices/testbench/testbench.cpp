@@ -24,6 +24,7 @@
 #include "spim_verif.hpp"
 #include "i2s_verif.hpp"
 #include <stdio.h>
+#include "vp/proxy.hpp"
 
 Uart_flow_control_checker::Uart_flow_control_checker(Testbench *top, Uart *uart, pi_testbench_req_t *req)
 : top(top), uart(uart)
@@ -303,9 +304,7 @@ void Uart::handle_received_byte(uint8_t byte)
 {
     if (this->proxy_file)
     {
-        fprintf(this->proxy_file, "uart rx %d\n", this->id);
-        fwrite(&byte, 1, 1, this->proxy_file);
-        fflush(NULL);
+        this->top->proxy->send_payload(this->proxy_file, std::to_string(this->req), &byte, 1);
     }
     else if (this->is_control)
     {
@@ -735,6 +734,9 @@ void Testbench::handle_received_byte(uint8_t byte)
                 this->uart_ctrl->itf.sync_full(1, 2, 0);
                 this->uart_ctrl->send_byte(this->tx_buff[0]);
                 break;
+
+            default:
+                this->trace.fatal("Received unknown request: 0x%2.2x\n", this->cmd & 0xffff);
         }
     }
     else if (this->state == STATE_WAITING_REQUEST)
@@ -1160,7 +1162,7 @@ void Testbench::handle_i2s_verif_slot_stop()
 }
 
 
-std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vector<std::string> args)
+std::string Testbench::handle_command(Gv_proxy *proxy, FILE *req_file, FILE *reply_file, std::vector<std::string> args, std::string req)
 {
     bool error = false;
     string error_str = "";
@@ -1173,9 +1175,11 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
             {
                 pi_testbench_i2s_verif_config_t *config = (pi_testbench_i2s_verif_config_t *)this->req;
 
+                this->proxy = proxy;
+
                 *config = {};
 
-                std::vector<std::string> params = {args.begin() + 3, args.end()};
+                std::vector<std::string> params = {args.begin() + 2, args.end()};
 
                 for (std::string x: params)
                 {
@@ -1235,6 +1239,14 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
                     else if (name == "ws_polarity")
                     {
                         config->ws_polarity = value;
+                    }
+                    else if (name == "ws_delay")
+                    {
+                        config->ws_delay = value;
+                    }
+                    else
+                    {
+                        this->trace.fatal("Received invalid property (name: %s)\n", name.c_str());
                     }
                 }
 
@@ -1322,6 +1334,10 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
                         config->slot = value;
                         slots.push_back(value);
                     }
+                    else if (name == "width")
+                    {
+                        config->rx_file_reader.width = value;
+                    }
                     else if (name == "filepath")
                     {
                         strcpy(filepath, value_str.c_str());
@@ -1332,6 +1348,10 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
                         {
                             config->rx_file_reader.type = PI_TESTBENCH_I2S_VERIF_RX_FILE_READER_TYPE_WAV;
                         }
+                        else if (value_str == "bin")
+                        {
+                            config->rx_file_reader.type = PI_TESTBENCH_I2S_VERIF_RX_FILE_READER_TYPE_BIN;
+                        }
                         else if (value_str == "au")
                         {
                             config->rx_file_reader.type = PI_TESTBENCH_I2S_VERIF_RX_FILE_READER_TYPE_AU;
@@ -1339,6 +1359,21 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
                         else
                         {
                             config->rx_file_reader.type = 0;
+                        }
+                    }
+                    else if (name == "encoding")
+                    {
+                        if (value_str == "asis")
+                        {
+                            config->rx_file_reader.encoding = PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_ASIS;
+                        }
+                        else if (value_str == "plusminus")
+                        {
+                            config->rx_file_reader.encoding = PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_PLUSMINUS;
+                        }
+                        else
+                        {
+                            config->rx_file_reader.encoding = PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_ASIS;
                         }
                     }
                 }
@@ -1379,11 +1414,19 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
                     {
                         strcpy(filepath, value_str.c_str());
                     }
+                    else if (name == "width")
+                    {
+                        config->tx_file_dumper.width = value;
+                    }
                     else if (name == "filetype")
                     {
                         if (value_str == "wav")
                         {
                             config->tx_file_dumper.type = PI_TESTBENCH_I2S_VERIF_TX_FILE_DUMPER_TYPE_WAV;
+                        }
+                        else if (value_str == "bin")
+                        {
+                            config->tx_file_dumper.type = PI_TESTBENCH_I2S_VERIF_TX_FILE_DUMPER_TYPE_BIN;
                         }
                         else if (value_str == "au")
                         {
@@ -1392,6 +1435,21 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
                         else
                         {
                             config->tx_file_dumper.type = 0;
+                        }
+                    }
+                    else if (name == "encoding")
+                    {
+                        if (value_str == "asis")
+                        {
+                            config->tx_file_dumper.encoding = PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_ASIS;
+                        }
+                        else if (value_str == "plusminus")
+                        {
+                            config->tx_file_dumper.encoding = PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_PLUSMINUS;
+                        }
+                        else
+                        {
+                            config->tx_file_dumper.encoding = PI_TESTBENCH_I2S_VERIF_FILE_ENCODING_TYPE_ASIS;
                         }
                     }
                 }
@@ -1519,7 +1577,9 @@ std::string Testbench::handle_command(FILE *req_file, FILE *reply_file, std::vec
 
                 if (enabled)
                 {
+                    int req = strtol(args[4].c_str(), NULL, 0);
                     this->uarts[itf]->proxy_file = reply_file;
+                    this->uarts[itf]->req = req;
                 }
                 else
                 {

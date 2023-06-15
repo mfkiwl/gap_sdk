@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, GreenWaves Technologies, Inc.
+ * Copyright (c) 2020, GreenWaves Technologies, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -29,28 +29,35 @@
  */
 
 #include "pmsis/chips/vega/gpio.h"
+#include "pmsis/drivers/gpio.h"
 #include "pmsis.h"
+#include "pmsis/implem/hal/hal.h"
 
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
 
-struct gpio_itf_data_s
+/**
+ * GPIO split.
+ * Port[0]=00-31
+ * Port[1]=32-63
+ */
+typedef struct gpio_data_s
 {
-    uint32_t device_id;                                   /*!< Referred in pi_gpio_conf as port. */
     uint32_t nb_open;                                     /*!< Number of open. */
     uint32_t irq_status;                                  /*!< GPIO pin mask of IRQ status. */
-    uint32_t input_mask;                                  /*!< GPIO mask of configured pins. */
-    uint32_t output_mask;                                 /*!< GPIO mask of configured pins. */
-    pi_gpio_callback_t *cb;                               /*!< User callbacks. */
-    pi_task_t *event_task[ARCHI_GPIO_NB_GPIO_PER_DEVICE]; /*!< Callback associated to each GPIO pins. */
-};
+    uint32_t input_mask;                                  /*!< GPIO mask of pins configured for IN. */
+    uint32_t output_mask;                                 /*!< GPIO mask of pins configured for OUT. */
+    pi_gpio_callback_t *cb;                               /*!< Fast callbacks. */
+    pi_task_t *event_task[ARCHI_GPIO_NB_GPIO_PER_DEVICE]; /*!< Callback associated to each GPIO puns. */
+    uint8_t device_id;                                    /*!< Referred in pi_gpio_conf as port. */
+} gpio_data_t;
 
 /*******************************************************************************
  * Driver data
- *****************************************************************************/
+ ******************************************************************************/
 
-static struct gpio_itf_data_s *g_gpio_itf_data[ARCHI_GPIO_NB_DEVICE] = {NULL};
+static gpio_data_t *g_gpio_data[ARCHI_GPIO_NB_DEVICE] = {NULL};
 
 /*******************************************************************************
  * Function declaration
@@ -58,19 +65,20 @@ static struct gpio_itf_data_s *g_gpio_itf_data[ARCHI_GPIO_NB_DEVICE] = {NULL};
 
 #if defined(TRACE_GPIO)
 /* Print gpio info. */
-void pi_gpio_print();
+void pi_gpio_print(void);
 #endif  /* TRACE_GPIO */
 
-/* IRQ Handler. */
-static void __pi_gpio_handler(void *arg);
+/* IRQ handler. */
+extern void __pi_gpio_irq_handler(void);
+void __pi_gpio_handler(void *arg);
 
-static int32_t __pi_gpio_callback_add(struct gpio_itf_data_s *data,
+static int32_t __pi_gpio_callback_add(struct gpio_data_s *data,
                                       pi_gpio_callback_t *cb);
 
-static int32_t __pi_gpio_callback_remove(struct gpio_itf_data_s *data,
+static int32_t __pi_gpio_callback_remove(struct gpio_data_s *data,
                                          pi_gpio_callback_t *cb);
 
-static void __pi_gpio_callback_fire(struct gpio_itf_data_s *data,
+static void __pi_gpio_callback_fire(struct gpio_data_s *data,
                                     pi_gpio_callback_t *cb);
 
 /*******************************************************************************
@@ -80,22 +88,45 @@ static void __pi_gpio_callback_fire(struct gpio_itf_data_s *data,
 #if defined(TRACE_GPIO)
 void pi_gpio_print(void)
 {
-    printf("GpioEn : %x\n", gpio_gpioen_get());
-    printf("Paddir | Padin | Padout : %lx %lx %lx\n",
-           gpio_paddir_get(), gpio_padin_get(), gpio_padout_get());
-    printf("IRQ_EN: %lx | IRQ_Status: %lx | IRQ_Type : %lx %lx\nPadcfg:\n",
-           gpio_inten_get(), gpio_intstatus_get(), gpio_inttype_get(0), gpio_inttype_get(1));
-    for (uint32_t reg = 0; reg < (uint32_t) ARCHI_GPIO_NB_PADCFG_REG; reg += 4)
+    gpio_data_t *gpio = NULL;
+    uint8_t pin_00 = 0, pin_31 = 0;
+    uint32_t device_id = 0;
+    for (uint32_t i = 0; i < (uint32_t) ARCHI_GPIO_NB_DEVICE; i++)
     {
-        printf("%lx %lx %lx %lx\n",
-               gpio_padcfg_get(reg + 0), gpio_padcfg_get(reg + 1),
-               gpio_padcfg_get(reg + 2), gpio_padcfg_get(reg + 3));
+        gpio = g_gpio_data[i];
+        //if (1)
+        if (gpio != NULL)
+        {
+            pin_00 = (uint32_t) ARCHI_GPIO_NB_GPIO_PER_DEVICE * i;
+            pin_31 = pin_00 + 0x1f;
+            //device_id = gpio->device_id;
+            device_id = i;
+            printf("GPIO %d - %d\n", pin_00, pin_31);
+            printf("GPIOEN: %lx\n", hal_gpio_enable_get(device_id));
+            printf("Paddir | Padin | Padout: %lx %lx %lx\n",
+                   hal_gpio_direction_get(device_id),
+                   hal_gpio_input_value_get(device_id),
+                   hal_gpio_output_value_get(device_id));
+            printf("IRQ_EN: %lx | IRQ_STATUS: %lx | IRQ_TYPE: %lx %lx\nPadcfg: \n",
+                   hal_gpio_irq_get(device_id),
+                   hal_gpio_irq_status_get(device_id),
+                   hal_gpio_irq_type_get(device_id, 0),
+                   hal_gpio_irq_type_get(device_id, 1));
+            for (uint32_t reg = 0; reg < (uint32_t) ARCHI_GPIO_NB_PADCFG_REG; reg+=4)
+            {
+                printf("%lx %lx %lx %lx\n",
+                       hal_gpio_config_get(device_id, (reg + 0)),
+                       hal_gpio_config_get(device_id, (reg + 1)),
+                       hal_gpio_config_get(device_id, (reg + 2)),
+                       hal_gpio_config_get(device_id, (reg + 3)));
+            }
+        }
     }
 }
 #endif  /* TRACE_GPIO */
 
 
-static int32_t __pi_gpio_callback_add(struct gpio_itf_data_s *data,
+static int32_t __pi_gpio_callback_add(struct gpio_data_s *data,
                                       pi_gpio_callback_t *cb)
 {
     if (cb == NULL)
@@ -125,7 +156,7 @@ static int32_t __pi_gpio_callback_add(struct gpio_itf_data_s *data,
     return 0;
 }
 
-static int32_t __pi_gpio_callback_remove(struct gpio_itf_data_s *data,
+static int32_t __pi_gpio_callback_remove(struct gpio_data_s *data,
                                          pi_gpio_callback_t *cb)
 {
     GPIO_TRACE("Removing callback=%lx, head=%lx.\n", cb, data->cb);
@@ -172,7 +203,7 @@ static int32_t __pi_gpio_callback_remove(struct gpio_itf_data_s *data,
     return 0;
 }
 
-static void __pi_gpio_callback_fire(struct gpio_itf_data_s *data,
+static void __pi_gpio_callback_fire(struct gpio_data_s *data,
                                     pi_gpio_callback_t *cb)
 {
     uint32_t irq_mask = data->irq_status;
@@ -187,37 +218,48 @@ static void __pi_gpio_callback_fire(struct gpio_itf_data_s *data,
     }
 }
 
-static void gpio_handler(void *arg)
+/* IRQ Handler. */
+void __pi_gpio_handler(void *arg)
 {
     (void) arg;
 
+    gpio_data_t *gpio = NULL;
+    uint32_t irq_mask[ARCHI_GPIO_NB_DEVICE] = {0};
     /* Retrieve IRQ status from GPIO. Handle task if needed. */
-    struct gpio_itf_data_s *gpio = g_gpio_itf_data[0];
-    gpio->irq_status = hal_gpio_irq_status_get();
-    //GPIO_TRACE("GPIO IRQ status=%lx\n", gpio->irq_status);
-
-    if (gpio->cb != NULL)
+    for (uint32_t i = 0; i < (uint32_t) ARCHI_GPIO_NB_DEVICE; i++)
     {
-        __pi_gpio_callback_fire(gpio, gpio->cb);
-    }
-    else
-    {
-        uint8_t pin = 0;
-        uint32_t irq_mask = 0;
-        pi_task_t *task = NULL;
-        irq_mask = (gpio->irq_status & gpio->input_mask);
-        while (irq_mask)
+        gpio = g_gpio_data[i];
+        if (gpio != NULL)
         {
-            if (irq_mask & 0x1)
+            gpio->irq_status = hal_gpio_irq_status_get(gpio->device_id);
+            irq_mask[i] = gpio->irq_status & gpio->input_mask;
+        }
+    }
+    pi_task_t *task = NULL;
+    uint8_t pin = 0;
+    for (uint32_t i = 0; i < (uint32_t) ARCHI_GPIO_NB_DEVICE; i++)
+    {
+        gpio = g_gpio_data[i];
+        pin = 0;
+        if ((gpio->cb != NULL) && irq_mask[i])
+        {
+            __pi_gpio_callback_fire(gpio, gpio->cb);
+        }
+        else
+        {
+            while (irq_mask[i])
             {
-                task = gpio->event_task[pin];
-                if (task != NULL)
+                if (irq_mask[i] & 0x1)
                 {
-                    __pi_irq_handle_end_of_task(task);
+                    task = gpio->event_task[pin];
+                    if (task != NULL)
+                    {
+                        __pi_irq_handle_end_of_task(task);
+                    }
                 }
+                irq_mask[i] = irq_mask[i] >> 1;
+                pin++;
             }
-            irq_mask = irq_mask >> 1;
-            pin++;
         }
     }
 }
@@ -235,18 +277,18 @@ void pi_gpio_conf_init(struct pi_gpio_conf *conf)
 int pi_gpio_open(struct pi_device *device)
 {
     struct pi_gpio_conf *conf = (struct pi_gpio_conf *) device->config;
-    struct gpio_itf_data_s *driver_data = g_gpio_itf_data[conf->port];
+    gpio_data_t *driver_data = g_gpio_data[conf->port];
     if (driver_data == NULL)
     {
         GPIO_TRACE("Device id=%ld opening for first time.\n", conf->port);
-        driver_data = (struct gpio_itf_data_s *) pi_l2_malloc(sizeof(struct gpio_itf_data_s));
+        driver_data = pi_fc_l1_malloc(sizeof(struct gpio_data_s));
         if (driver_data == NULL)
         {
-            GPIO_TRACE_ERR("Error allocating GPIO driver data.\n");
+            GPIO_TRACE_ERR("Error allocating GPIO driver data\n");
             return -11;
         }
         driver_data->device_id = conf->port;
-        driver_data->nb_open = 1;
+        driver_data->nb_open = 0;
         driver_data->irq_status = 0;
         driver_data->input_mask = 0;
         driver_data->output_mask = 0;
@@ -256,82 +298,89 @@ int pi_gpio_open(struct pi_device *device)
             driver_data->event_task[i] = NULL;
         }
 
+        /* Enable GPIO IRQ and set IRQ handler. */
+        #if 0
         /* Set handler. */
-        pi_fc_event_handler_set(SOC_EVENT_GPIO, gpio_handler);
+        pi_fc_event_handler_set(SOC_EVENT_GPIO, __pi_gpio_handler);
         /* Enable SOC events propagation to FC. */
         hal_soc_eu_set_fc_mask(SOC_EVENT_GPIO);
         GPIO_TRACE("GPIO(%ld) enabling SOC events propagation, event = %d.\n",
                    driver_data->device_id, SOC_EVENT_GPIO);
-        g_gpio_itf_data[driver_data->device_id] = driver_data;
-        device->data = (void *) g_gpio_itf_data[driver_data->device_id];
+        #else
+        pi_irq_mask_enable(FC_IRQ_GPIO);
+        //pi_irq_handler_fast_set(FC_IRQ_GPIO, __pi_gpio_irq_handler);
+        GPIO_TRACE("GPIO(%ld) enabling GPIO IRQ = %d.\n", driver_data->device_id, FC_IRQ_GPIO);
+        #endif
+
+        g_gpio_data[driver_data->device_id] = driver_data;
+        device->data = (void *) g_gpio_data[driver_data->device_id];
     }
-    else
-    {
-        driver_data->nb_open++;
-        device->data = (void *) g_gpio_itf_data[driver_data->device_id];
-        GPIO_TRACE("Device id=%ld already opened, open=%ld.\n",
-                   driver_data->device_id, driver_data->nb_open);
-    }
+    driver_data->nb_open++;
+    device->data = (void *) g_gpio_data[driver_data->device_id];
+    GPIO_TRACE("GPIO device id=%d open=%ld.\n", driver_data->device_id, driver_data->nb_open);
+
     return 0;
 }
 
 void pi_gpio_close(struct pi_device *device)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
+    struct gpio_data_s *data = (struct gpio_data_s *) device->data;
+    uint8_t device_id = data->device_id;
 
     data->nb_open--;
-    GPIO_TRACE("Closing Device id=%ld, open=%ld.\n", device_id, data->nb_open);
+    GPIO_TRACE("Closing device id=%ld, open=%ld.\n", device_id, data->nb_open);
     if (data->nb_open == 0)
     {
-        /* Clear handler. */
-        pi_fc_event_handler_clear(SOC_EVENT_GPIO);
-        /* Disable SOC events propagation to FC. */
-        hal_soc_eu_clear_fc_mask(SOC_EVENT_GPIO);
+        /* Disable GPIO IRQ. */
+        pi_irq_mask_disable(FC_IRQ_GPIO);
 
         /* Disable input GPIOs. */
-        hal_gpio_enable(data->input_mask, 0);
+        hal_gpio_enable(device_id, data->input_mask, 0);
 
         /* Free allocated structure. */
-        pi_l2_free(g_gpio_itf_data[device_id], sizeof(struct gpio_itf_data_s));
+        pi_fc_l1_free(g_gpio_data[device_id], sizeof(struct gpio_data_s));
     }
     device->data = NULL;
 }
 
+
 int pi_gpio_pin_configure(struct pi_device *device, pi_gpio_e gpio,
                           pi_gpio_flags_e flags)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(gpio) != device_id)
+    {
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
+        return -11;
+    }
     if (gpio & PI_GPIO_IS_GPIO_MASK)
     {
         pi_pad_e pad = ((gpio & PI_GPIO_PAD_MASK) >> PI_GPIO_PAD_SHIFT);
         /* Setup first pad for GPIO. */
+        GPIO_TRACE("Configuring PAD_%d as GPIO.\n", pad);
         pi_pad_set_function(pad, PI_PAD_FUNC1);
     }
 
     uint32_t gpio_pin = (gpio & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
     uint32_t mask = (1 << gpio_pin);
-    uint8_t pe = ((flags & PI_GPIO_PULL_ENABLE) >> PI_GPIO_PULL_OFFSET);
-    uint8_t ds = ((flags & PI_GPIO_DRIVE_STRENGTH_HIGH) >> PI_GPIO_DRIVE_OFFSET);
-    uint8_t dir = ((flags & PI_GPIO_OUTPUT) >> PI_GPIO_MODE_OFFSET);
+    uint8_t pe = (flags & PI_GPIO_PULL_ENABLE) >> PI_GPIO_PULL_OFFSET;
+    uint8_t ds = (flags & PI_GPIO_DRIVE_STRENGTH_HIGH) >> PI_GPIO_DRIVE_OFFSET;
+    uint8_t dir = (flags & PI_GPIO_OUTPUT) >> PI_GPIO_MODE_OFFSET;
     if (dir)
     {
-        data->input_mask &= ~mask;
-        data->output_mask |= mask;
+        device_data->input_mask &= ~mask;
+        device_data->output_mask |= mask;
     }
     else
     {
-        data->input_mask |= mask;
-        data->output_mask &= ~mask;
+        device_data->input_mask |= mask;
+        device_data->output_mask &= ~mask;
     }
-    GPIO_TRACE("GPIO configured : INPUT=%lx  OUTPUT=%lx\n",
-               data->input_mask, data->output_mask);
 
-    hal_gpio_pin_direction_set(gpio_pin, dir);
-    hal_gpio_pin_config_set(gpio_pin, pe, ds);
-    hal_gpio_pin_enable(gpio_pin, !dir);
+    hal_gpio_pin_direction_set(device_id, gpio_pin, dir);
+    hal_gpio_pin_config_set(device_id, gpio_pin, pe, ds);
+    hal_gpio_pin_enable(device_id, gpio_pin, !dir);
 
     GPIO_TRACE("GPIO[%ld, %d](%lx) configured as %s\n",
                device_id, gpio_pin, gpio, ((dir) ? "output" : "input"));
@@ -340,212 +389,233 @@ int pi_gpio_pin_configure(struct pi_device *device, pi_gpio_e gpio,
 
 int pi_gpio_pin_write(struct pi_device *device, uint32_t pin, uint32_t value)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
-    uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
-    uint32_t mask = (1 << gpio_pin);
-    if ((data->output_mask & mask) != mask)
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(pin) != device_id)
     {
-        GPIO_TRACE_ERR("Error : pin %d is not configured as output %lx - %lx!\n",
-                       gpio_pin, data->output_mask, mask);
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
         return -11;
     }
+    uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
+    uint32_t mask = (1 << gpio_pin);
+    if ((device_data->output_mask & mask) != mask)
+    {
+        GPIO_TRACE_ERR("Error : pin %d is not configured as output %lx - %lx!\n",
+                       gpio_pin, device_data->output_mask, mask);
+        return -12;
+    }
     GPIO_TRACE("Write Pin: %d val: %ld\n", gpio_pin, value);
-    hal_gpio_pin_output_value_set(gpio_pin, (uint8_t) (value & 0xff));
+    hal_gpio_pin_output_value_set(device_id, gpio_pin, (uint8_t) value);
     return 0;
 }
 
 int pi_gpio_pin_read(struct pi_device *device, uint32_t pin, uint32_t *value)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
-    uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
-    uint32_t mask = (1 << gpio_pin);
-    if (((data->input_mask & mask) != mask) &&
-        ((data->output_mask & mask) != mask))
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(pin) != device_id)
     {
-        GPIO_TRACE_ERR("Error : pin %d is not configured as in input or output %lx - %lx!\n",
-                       gpio_pin, (data->input_mask | data->output_mask), mask);
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
         return -11;
     }
-
-    if ((data->input_mask & mask))
+    uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
+    uint32_t mask = (1 << gpio_pin);
+    #if 0
+    if (((device_data->input_mask & mask) != mask) &&
+        ((device_data->output_mask & mask) != mask))
     {
-        *value = hal_gpio_pin_input_value_get(gpio_pin);
+        GPIO_TRACE_ERR("Error : pin %d is not configured as input or output %lx - %lx!\n",
+                       gpio_pin, (device_data->input_mask | device_data->output_mask), mask);
+        return -12;
+    }
+    #endif
+    if ((device_data->input_mask & mask))
+    {
+        *value = hal_gpio_pin_input_value_get(device_id, gpio_pin);
         GPIO_TRACE("Input read Pin: %d val: %ld\n", gpio_pin, *value);
     }
-    else
-    {
-        *value = hal_gpio_pin_output_value_get(gpio_pin);
-        GPIO_TRACE("Output read Pin: %d val: %ld\n", gpio_pin, *value);
-    }
+    /* else */
+    /* { */
+    /*     *value = hal_gpio_pin_output_value_get(device_id, gpio_pin); */
+    /*     GPIO_TRACE("Output read Pin: %d val: %ld\n", gpio_pin, *value); */
+    /* } */
     return 0;
 }
 
 void pi_gpio_pin_notif_configure(struct pi_device *device, uint32_t pin,
-                                 pi_gpio_notif_e irq_type)
+                                 pi_gpio_notif_e flags)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(pin) != device_id)
+    {
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
+        return;
+    }
     uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
     uint32_t mask = (1 << gpio_pin);
-    if ((data->input_mask & mask) != mask)
+    if ((device_data->input_mask & mask) != mask)
     {
         GPIO_TRACE_ERR("Error : pin %d is not configured as input %lx - %lx!\n",
-                       gpio_pin, data->input_mask, mask);
+                       gpio_pin, device_data->input_mask, mask);
         return;
     }
 
-    if (irq_type == PI_GPIO_NOTIF_NONE)
+    if (flags == PI_GPIO_NOTIF_NONE)
     {
-        hal_gpio_pin_irq_set(gpio_pin, 0);
+        hal_gpio_pin_irq_set(device_id, gpio_pin, 0);
     }
     else
     {
-        hal_gpio_pin_irq_set(gpio_pin, 1);
-        hal_gpio_pin_irq_type_set(gpio_pin, irq_type);
+        hal_gpio_pin_irq_set(device_id, gpio_pin, 1);
+        hal_gpio_pin_irq_type_set(device_id, gpio_pin, flags);
     }
-    GPIO_TRACE("Configure Pin: %d IRQ: %x\n", gpio_pin, irq_type);
+    GPIO_TRACE("Configure Pin: %d IRQ: %x\n", gpio_pin, flags);
 }
 
 void pi_gpio_pin_notif_clear(struct pi_device *device, uint32_t pin)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(pin) != device_id)
+    {
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
+        return;
+    }
     uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
     uint32_t mask = (1 << gpio_pin);
     GPIO_TRACE("Clear IRQ Pin: %d\n", gpio_pin);
-    data->irq_status &= ~mask;
+    device_data->irq_status &= ~mask;
 }
 
 int pi_gpio_pin_notif_get(struct pi_device *device, uint32_t pin)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(pin) != device_id)
+    {
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
+        return -11;
+    }
     uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
-    uint32_t status = data->irq_status;
+    uint32_t status = device_data->irq_status;
     return ((status >> gpio_pin) & 0x1);
 }
 
 int pi_gpio_pin_task_add(struct pi_device *device, uint32_t pin, pi_task_t *task,
-                         pi_gpio_notif_e irq_type)
+                         pi_gpio_notif_e flags)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
-    uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
-    uint32_t mask = (1 << gpio_pin);
-
-    if ((data->input_mask & mask) != mask)
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(pin) != device_id)
     {
-        GPIO_TRACE_ERR("Error : pin %d is not configured as input %lx - %lx!\n",
-                       gpio_pin, data->input_mask, mask);
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
         return -11;
     }
-
-    data->event_task[gpio_pin] = task;
-    if (irq_type == PI_GPIO_NOTIF_NONE)
+    uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
+    uint32_t mask = (1 << gpio_pin);
+    if ((device_data->input_mask & mask) != mask)
     {
-        hal_gpio_pin_irq_set(gpio_pin, 0);
+        GPIO_TRACE_ERR("Error : pin %d is not configured as input %lx - %lx!\n",
+                       gpio_pin, device_data->input_mask, mask);
+        return -12;
+    }
+
+    device_data->event_task[gpio_pin] = task;
+    /* Configure GPIO pin. */
+    if (flags == PI_GPIO_NOTIF_NONE)
+    {
+        hal_gpio_pin_irq_set(device_id, gpio_pin, 0);
     }
     else
     {
-        hal_gpio_pin_irq_set(gpio_pin, 1);
-        hal_gpio_pin_irq_type_set(gpio_pin, irq_type);
+        hal_gpio_pin_irq_set(device_id, gpio_pin, 1);
+        hal_gpio_pin_irq_type_set(device_id, gpio_pin, flags);
     }
-    GPIO_TRACE("Configure Pin: %d IRQ: %x\n", gpio_pin, irq_type);
+    GPIO_TRACE("Configure Pin: %d IRQ: %x\n", gpio_pin, flags);
     return 0;
 }
 
 int pi_gpio_pin_task_remove(struct pi_device *device, uint32_t pin)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if (ARCHI_GPIO_DEVICE_ID(pin) != device_id)
+    {
+        GPIO_TRACE_ERR("Error mismatch device and GPIO pin !\n");
+        return -11;
+    }
     uint8_t gpio_pin = (pin & ARCHI_GPIO_NB_GPIO_PER_DEVICE_MASK);
     uint32_t mask = (1 << gpio_pin);
-
-    data->event_task[gpio_pin] = NULL;
+    device_data->event_task[gpio_pin] = NULL;
     return 0;
 }
 
 int pi_gpio_mask_configure(struct pi_device *device, uint32_t mask,
                            pi_gpio_flags_e flags)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
-    uint8_t pe = ((flags & PI_GPIO_PULL_ENABLE) >> PI_GPIO_PULL_OFFSET);
-    uint8_t ds = ((flags & PI_GPIO_DRIVE_STRENGTH_HIGH) >> PI_GPIO_DRIVE_OFFSET);
-    uint8_t dir = ((flags & PI_GPIO_OUTPUT) >> PI_GPIO_MODE_OFFSET);
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    uint8_t pe = (flags & PI_GPIO_PULL_ENABLE) >> PI_GPIO_PULL_OFFSET;
+    uint8_t ds = (flags & PI_GPIO_DRIVE_STRENGTH_HIGH) >> PI_GPIO_DRIVE_OFFSET;
+    uint8_t dir = (flags & PI_GPIO_OUTPUT) >> PI_GPIO_MODE_OFFSET;
     if (dir)
     {
-        data->input_mask &= ~mask;
-        data->output_mask |= mask;
+        device_data->input_mask &= ~mask;
+        device_data->output_mask |= mask;
     }
     else
     {
-        data->input_mask |= mask;
-        data->output_mask &= ~mask;
+        device_data->input_mask |= mask;
+        device_data->output_mask &= ~mask;
     }
 
-    hal_gpio_direction_set(mask, dir);
-    hal_gpio_config_set(mask, pe, ds);
-    hal_gpio_enable(mask, !dir);
+    hal_gpio_direction_set(device_id, mask, dir);
+    hal_gpio_config_set(device_id, mask, pe, ds);
+    hal_gpio_enable(device_id, mask, !dir);
     return 0;
 }
 
 int pi_gpio_mask_write(struct pi_device *device, uint32_t mask, uint32_t value)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
-    if ((data->output_mask & mask) != mask)
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if ((device_data->output_mask & mask) != mask)
     {
         GPIO_TRACE_ERR("Error some pins are not configured as output %lx - %lx!\n",
-                       data->output_mask, mask);
+                       device_data->output_mask, mask);
         return -11;
     }
-    hal_gpio_output_value_set(mask, value);
+    hal_gpio_output_value_set(device_id, mask, value);
     return 0;
 }
 
 int pi_gpio_mask_read(struct pi_device *device, uint32_t mask, uint32_t *value)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
-    uint32_t device_id = data->device_id;
-
-    uint32_t val = 0;
-    if ((data->input_mask & mask))
+    gpio_data_t *device_data = (gpio_data_t *) device->data;
+    uint32_t device_id = device_data->device_id;
+    if ((device_data->input_mask & mask) != mask)
     {
-        *value = hal_gpio_input_value_get(mask);
-        GPIO_TRACE("Input read val: %ld\n", *value);
+        GPIO_TRACE_ERR("Error some pins are not configured %lx - %lx!\n",
+                       device_data->input_mask, mask);
+        return -11;
     }
-    else
-    {
-        *value = hal_gpio_output_value_get(mask);
-        GPIO_TRACE("Output read val: %ld\n", *value);
-    }
-
+    uint32_t val = hal_gpio_input_value_get(device_id);
+    *value = val & mask;
     return 0;
 }
 
 int pi_gpio_mask_task_add(struct pi_device *device, uint32_t mask,
-                          pi_task_t *task, pi_gpio_notif_e irq_type)
+                          pi_task_t *task, pi_gpio_notif_e flags)
 {
     uint32_t gpio_mask = mask;
     uint8_t pin = 0;
-    int32_t error = 0;
+    int error = 0;
     while (gpio_mask)
     {
         if (gpio_mask & 0x1)
         {
-            error = pi_gpio_pin_task_add(device, pin, task, irq_type);
+            error = pi_gpio_pin_task_add(device, pin, task, flags);
             if (error)
             {
                 GPIO_TRACE_ERR("Error configuring pin %d\n", pin);
@@ -562,7 +632,7 @@ int pi_gpio_mask_task_remove(struct pi_device *device, uint32_t mask)
 {
     uint32_t gpio_mask = mask;
     uint8_t pin = 0;
-    int32_t error = 0;
+    int error = 0;
     while (gpio_mask)
     {
         if (gpio_mask & 0x1)
@@ -574,7 +644,7 @@ int pi_gpio_mask_task_remove(struct pi_device *device, uint32_t mask)
                 return -11;
             }
         }
-        gpio_mask = (gpio_mask >> 1);
+        gpio_mask = gpio_mask >> 1;
         pin++;
     }
     return 0;
@@ -582,13 +652,13 @@ int pi_gpio_mask_task_remove(struct pi_device *device, uint32_t mask)
 
 int pi_gpio_callback_add(struct pi_device *device, pi_gpio_callback_t *cb)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
+    struct gpio_data_s *data = (struct gpio_data_s *) device->data;
     return __pi_gpio_callback_add(data, cb);
 
 }
 
 int pi_gpio_callback_remove(struct pi_device *device, pi_gpio_callback_t *cb)
 {
-    struct gpio_itf_data_s *data = (struct gpio_itf_data_s *) device->data;
+    struct gpio_data_s *data = (struct gpio_data_s *) device->data;
     return __pi_gpio_callback_remove(data, cb);
 }

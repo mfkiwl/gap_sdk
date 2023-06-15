@@ -67,11 +67,11 @@
 #define PMU_ADDR                                    (SOC_PERIPHERALS_ADDR + PMU_OFFSET)
 #define RTC_ADDR                                    (SOC_PERIPHERALS_ADDR + RTC_BASE_OFFSET)
 #define FC_ITC_ADDR                                 (SOC_PERIPHERALS_ADDR + FC_ITC_OFFSET)
-#define I3C0_ADDR                                   (SOC_PERIPHERALS_ADDR + I3C0_OFFSET)
-#define I3C1_ADDR                                   (SOC_PERIPHERALS_ADDR + I3C1_OFFSET)
+/* I3C. */
+#define I3C_ADDR(id)                                (SOC_PERIPHERALS_ADDR + I3C0_OFFSET + (I3C(id) << I3C_SIZE_LOG2))
 /* TIMER. */
 #define FC_TIMER_ADDR(id)                           (SOC_PERIPHERALS_ADDR + FC_TIMER_OFFSET + (FC_TIMER(id) << TIMER_SIZE_LOG2))
-//#define FC_TIMER_ADDR                               (SOC_PERIPHERALS_ADDR + FC_TIMER_OFFSET)
+#define FC_ICACHE_ADDR                              (SOC_PERIPHERALS_ADDR + FC_ICACHE_OFFSET)
 #define DPHY_ADDR                                   (SOC_PERIPHERALS_ADDR + DPHY_OFFSET)
 #define CSI2_ADDR                                   (SOC_PERIPHERALS_ADDR + CSI2_OFFSET)
 #define MPU_ADDR                                    (SOC_PERIPHERALS_ADDR + MPU_OFFSET)

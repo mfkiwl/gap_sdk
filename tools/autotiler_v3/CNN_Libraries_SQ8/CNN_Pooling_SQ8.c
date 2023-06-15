@@ -1,13 +1,29 @@
+/*
+ * Copyright (C) 2018 GreenWaves Technologies
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <stdio.h>
+#include "Gap.h"
+#include "CNN_BasicKernels_SQ8.h"
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wextra"
 #pragma GCC diagnostic ignored "-Wpointer-sign"
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #pragma GCC diagnostic ignored "-Wswitch"
-
-#include <stdio.h>
-#include "Gap.h"
-#include "CNN_BasicKernels_SQ8.h"
 
 static int CoreCountDynamic = 1;
 static int ActiveCore = gap_ncore();
@@ -57,6 +73,8 @@ static void Ker_Activation_SQ8(
 		switch (Activation) {
 			case ACT_NONE:     Acc0 = AT_SCALE(Acc0, ActScale, ActScaleN); Acc1 = AT_SCALE(Acc1, ActScale, ActScaleN); break;
 			case ACT_RELU:     Acc0 = AT_SCALE(Max(0, Acc0), ActScale, ActScaleN); Acc1 = AT_SCALE(Max(0, Acc1), ActScale, ActScaleN); break;
+			case ACT_RELUM:    Acc0 = AT_SCALE(Max(A0, Acc0), ActScale, ActScaleN); Acc1 = AT_SCALE(Max(A0, Acc1), ActScale, ActScaleN); break;
+			case ACT_RELUMN:   Acc0 = AT_SCALE(Min(B0, Max(A0, Acc0)), ActScale, ActScaleN); Acc1 = AT_SCALE(Min(B0, Max(A0, Acc1)), ActScale, ActScaleN); break;
 			case ACT_RELUN:    Acc0 = AT_SCALE(AT_CLIP_POS(Acc0, A0), ActScale, ActScaleN); Acc1 = AT_SCALE(AT_CLIP_POS(Acc1, A0), ActScale, ActScaleN); break;
 			case ACT_HSIGMOID: Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0, ActScale, ActScaleN); Acc1 = AT_SCALE(AT_CLIP_POS(Acc1 + B0, A0) * C0, ActScale, ActScaleN); break;
 			case ACT_HSWISH:   Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0 * Acc0, ActScale, ActScaleN); Acc1 = AT_SCALE(AT_CLIP_POS(Acc1 + B0, A0) * C0 * Acc1, ActScale, ActScaleN); break;
@@ -68,8 +86,19 @@ static void Ker_Activation_SQ8(
 					int Neg1 = gap_bitextractu(Acc1, 1, 31), Pos1 = !Neg1;
 					int Acc1N = AT_NORM(Acc1 * A0, 7);
 					Acc1 = AT_SCALE((Neg1*Acc1N+Pos1*Acc1), ActScale, ActScaleN);
-				//      Acc0 = AT_SCALE(((Acc0<0) ? AT_NORM((Acc0 * A0), 7):Acc0), ActScale, ActScaleN);
-				//      Acc1 = AT_SCALE(((Acc1<0) ? AT_NORM((Acc1 * A0), 7):Acc1), ActScale, ActScaleN);
+				//	Acc0 = AT_SCALE(((Acc0<0) ? AT_NORM((Acc0 * A0), 7):Acc0), ActScale, ActScaleN);
+				//	Acc1 = AT_SCALE(((Acc1<0) ? AT_NORM((Acc1 * A0), 7):Acc1), ActScale, ActScaleN);
+				}
+				break;
+			case ACT_SIGMOID:
+				{
+					// Assumes input (Acc) in Sq[-8:8] = 16 / 256 = 2**(-4)
+					// y = Sigmoid(x) expects x in Q12 --> Sin/Sq12 = 2**(-4) / 2**(-12) = 2**(8) --> << 8
+					// y in Q15 is then shifted to fit int8 Q7 data --> >> 8 and scaled to the output scale with ActScale
+					int Acc0N = Acc0 << 8;
+					Acc0 = AT_SCALE((Sigmoid(Acc0N) >> 8), ActScale, ActScaleN);
+					int Acc1N = Acc1 << 8;
+					Acc1 = AT_SCALE((Sigmoid(Acc1N) >> 8), ActScale, ActScaleN);
 				}
 				break;
 		}
@@ -81,6 +110,8 @@ static void Ker_Activation_SQ8(
 		switch (Activation) {
 			case ACT_NONE:     Acc0 = AT_SCALE(Acc0, ActScale, ActScaleN); break;
 			case ACT_RELU:     Acc0 = AT_SCALE(Max(0, Acc0), ActScale, ActScaleN); break;
+			case ACT_RELUM:    Acc0 = AT_SCALE(Max(A0, Acc0), ActScale, ActScaleN); break;
+			case ACT_RELUMN:   Acc0 = AT_SCALE(Min(B0, Max(A0, Acc0)), ActScale, ActScaleN); break;
 			case ACT_RELUN:    Acc0 = AT_SCALE(AT_CLIP_POS(Acc0, A0), ActScale, ActScaleN); break;
 			case ACT_HSIGMOID: Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0, ActScale, ActScaleN); break;
 			case ACT_HSWISH:   Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0 * Acc0, ActScale, ActScaleN); break;
@@ -89,7 +120,13 @@ static void Ker_Activation_SQ8(
 					int Neg0 = gap_bitextractu(Acc0, 1, 31), Pos0 = !Neg0;
 					int Acc0N = AT_NORM(Acc0 * A0, 7);
 					Acc0 = AT_SCALE((Neg0*Acc0N+Pos0*Acc0), ActScale, ActScaleN);
-				//      Acc0 = AT_SCALE(((Acc0<0) ? AT_NORM((Acc0 * A0), 7):Acc0), ActScale, ActScaleN);
+				//	Acc0 = AT_SCALE(((Acc0<0) ? AT_NORM((Acc0 * A0), 7):Acc0), ActScale, ActScaleN);
+				}
+				break;
+			case ACT_SIGMOID:
+				{
+					int Acc0N = Acc0 << 8;
+					Acc0 = AT_SCALE((Sigmoid(Acc0N) >> 8), ActScale, ActScaleN);
 				}
 				break;
 		}
@@ -104,7 +141,8 @@ static void Ker_ActivationScale1_SQ8(
 	signed char * __restrict__ InOut,
 	unsigned int N,
 	CNN_ActivationOper_T Activation,
-	int A0
+	int A0,
+	int B0
 	)
 
 {
@@ -113,6 +151,8 @@ static void Ker_ActivationScale1_SQ8(
 		switch (Activation) {
 			case ACT_RELU: Acc0 = Max(0, Acc0); Acc1 = Max(0, Acc1); break;
 			case ACT_RELUN: Acc0 = AT_CLIP_POS(Acc0, A0); Acc1 = AT_CLIP_POS(Acc1, A0); break;
+			case ACT_RELUM: Acc0 = Max(A0, Acc0); Acc1 = Max(A0, Acc1); break;
+			case ACT_RELUMN: Acc0 = Max(A0, Min(Acc0, B0)); Acc1 = Max(A0, Min(Acc1, B0)); break;
 		}
 		InOut[2*i] = Acc0; InOut[2*i+1] = Acc1;
 	}
@@ -122,6 +162,8 @@ static void Ker_ActivationScale1_SQ8(
 		switch (Activation) {
 			case ACT_RELU: Acc0 = Max(0, Acc0); break;
 			case ACT_RELUN: Acc0 = AT_CLIP_POS(Acc0, A0); break;
+			case ACT_RELUM: Acc0 = Max(A0, Acc0); break;
+			case ACT_RELUMN: Acc0 = Max(A0, Min(Acc0, B0)); break;
 		}
 		InOut[i] = Acc0;
 	}
@@ -145,6 +187,8 @@ static void Ker_Activation_Ver_SQ8(
 				case ACT_NONE:     Acc0 = AT_SCALE(Acc0, ActScale, ActScaleN); break;
 				case ACT_RELU:     Acc0 = AT_SCALE(Max(0, Acc0), ActScale, ActScaleN); break;
 				case ACT_RELUN:    Acc0 = AT_SCALE(AT_CLIP_POS(Acc0, A0), ActScale, ActScaleN); break;
+				case ACT_RELUM:    Acc0 = AT_SCALE(Max(A0, Acc0), ActScale, ActScaleN); break;
+				case ACT_RELUMN:   Acc0 = AT_SCALE(Max(A0, Min(Acc0, B0)), ActScale, ActScaleN); break;
 				case ACT_HSIGMOID: Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0, ActScale, ActScaleN); break;
 				case ACT_HSWISH:   Acc0 = AT_SCALE(AT_CLIP_POS(Acc0 + B0, A0) * C0 * Acc0, ActScale, ActScaleN); break;
 				case ACT_LEAKYRELU:
@@ -168,7 +212,8 @@ static void Ker_ActivationScale1_Ver_SQ8(
 	signed char * __restrict__ InOut,
 	unsigned int W, unsigned int H, unsigned int C_First, unsigned int C_Last,
 	CNN_ActivationOper_T Activation,
-	int A0
+	int A0,
+	int B0
 	)
 
 {
@@ -178,6 +223,8 @@ static void Ker_ActivationScale1_Ver_SQ8(
 			switch (Activation) {
 				case ACT_RELU: Acc0 = Max(0, Acc0); break;
 				case ACT_RELUN: Acc0 = AT_CLIP_POS(Acc0, A0); break;
+				case ACT_RELUM: Acc0 = Max(A0, Acc0); break;
+				case ACT_RELUMN: Acc0 = Max(A0, Min(Acc0, B0)); break;
 			}
 			InOut[l*W+c] = Acc0;
 		}
@@ -1199,7 +1246,9 @@ static void KerGlobalAvgPoolFullFeat_SQ8(
 	signed char * __restrict__ In,
 	signed char * __restrict__ Out,
 	unsigned int W,
-	unsigned int H
+	unsigned int H,
+	unsigned char Scale,
+	unsigned char ScaleN
 	)
 
 {
@@ -1214,7 +1263,52 @@ static void KerGlobalAvgPoolFullFeat_SQ8(
 	if ((W*H)&0x4) Sum = gap_sumdotp4(Vi[(W*H)/4-1], M, Sum);
 	for (unsigned int i=4*((W*H)/4); i<(W*H); i++) Sum += In[i];
 
-	*Out = gap_roundnorm_reg((Sum<<7)/((int)(W*H)), 7);
+	*Out = gap_clip(AT_SCALE((Sum<<7)/((int)(W*H)), Scale, ScaleN), 7);
+}
+
+static void KerGlobalSumPool_SQ8(
+	signed char * __restrict__ In,
+	int * __restrict__ Out,
+	unsigned int W,
+	unsigned int H,
+	int Init)
+
+{
+	v4s M = (v4s) {1,1,1,1};
+	v4s *Vi = (v4s *) In;
+	int Sum = Init?0:(*Out);
+
+	for (int i=0; i<((W*H)/(2*4)); i++) {
+		Sum = gap_sumdotp4(Vi[2*i], M, Sum);
+		Sum = gap_sumdotp4(Vi[2*i+1], M, Sum);
+	}
+	if ((W*H)&0x4) Sum = gap_sumdotp4(Vi[(W*H)/4-1], M, Sum);
+	for (unsigned int i=4*((W*H)/4); i<(W*H); i++) Sum += In[i];
+	*Out = Sum;
+}
+
+static void KerGlobalSumPoolFullFeat_SQ8(
+	signed char * __restrict__ In,
+	signed char * __restrict__ Out,
+	unsigned int W,
+	unsigned int H,
+	unsigned int Scale,
+	unsigned int ScaleN
+	)
+
+{
+	v4s M = (v4s) {1,1,1,1};
+	v4s *Vi = (v4s *) In;
+	int Sum = 0;
+
+	for (int i=0; i<((W*H)/(2*4)); i++) {
+		Sum = gap_sumdotp4(Vi[2*i], M, Sum);
+		Sum = gap_sumdotp4(Vi[2*i+1], M, Sum);
+	}
+	if ((W*H)&0x4) Sum = gap_sumdotp4(Vi[(W*H)/4-1], M, Sum);
+	for (unsigned int i=4*((W*H)/4); i<(W*H); i++) Sum += In[i];
+
+	*Out = gap_clip(AT_SCALE(Sum, Scale, ScaleN), 7);
 }
 
 /* Pooling group.
@@ -1259,17 +1353,27 @@ static void KerParPoolActivation(signed char *__restrict__ InOut, int W, int H, 
 				case ACT_NONE:      Ker_Activation_SQ8(InOut+Off, Size, ACT_NONE,      ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_RELU:      Ker_Activation_SQ8(InOut+Off, Size, ACT_RELU,      ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_RELUN:     Ker_Activation_SQ8(InOut+Off, Size, ACT_RELUN,     ActScale, ActScaleN, A0, B0, C0); break;
+				case ACT_RELUM:     Ker_Activation_SQ8(InOut+Off, Size, ACT_RELUM,     ActScale, ActScaleN, A0, B0, C0); break;
+				case ACT_RELUMN:    Ker_Activation_SQ8(InOut+Off, Size, ACT_RELUMN,    ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_HSIGMOID:  Ker_Activation_SQ8(InOut+Off, Size, ACT_HSIGMOID,  ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_HSWISH:    Ker_Activation_SQ8(InOut+Off, Size, ACT_HSWISH,    ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_LEAKYRELU: Ker_Activation_SQ8(InOut+Off, Size, ACT_LEAKYRELU, ActScale, ActScaleN, A0, B0, C0); break;
 			}
 		} else if (Activation == ACT_RELU) {
 			unsigned int Off = W*H*FirstFeat, Size = W*H*(LastFeat-FirstFeat);
-			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELU, 0);
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELU, 0, 0);
 		} else if (Activation == ACT_RELUN) {
 			unsigned int Off = W*H*FirstFeat, Size = W*H*(LastFeat-FirstFeat);
 			int A0 = Infos[AT_INF_A0];
-			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUN, A0);
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUN, A0, 0);
+		} else if (Activation == ACT_RELUM) {
+			unsigned int Off = W*H*FirstFeat, Size = W*H*(LastFeat-FirstFeat);
+			int A0 = Infos[AT_INF_A0];
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUM, A0, 0);
+		} else if (Activation == ACT_RELUMN) {
+			unsigned int Off = W*H*FirstFeat, Size = W*H*(LastFeat-FirstFeat);
+			int A0 = Infos[AT_INF_A0], B0 = Infos[AT_INF_B0];
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUMN, A0, B0);
 		}
 	}
 }
@@ -1327,6 +1431,32 @@ void KerParPool2x2Stride2_ReLU_SQ8(KerPool_SQ8_T *Arg)
 	gap_waitbarrier(0);
 }
 
+void KerParPool2x2Stride2_ReLUM_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	unsigned int FS=2,S=2;
+	signed char * __restrict__ In = Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	int PoolMax = Arg->PoolMax;
+	v4s PadIn = Arg->Pad;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	if (PoolMax) for (unsigned int of=First; of<Last; of++) KerMaxPool2x2Stride2_SQ8(In+of*W*H, W, H, Out+of*Wo*Ho, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, PadIn, PadIn);
+	else	 for (unsigned int of=First; of<Last; of++) KerAvgPool2x2Stride2_SQ8(In+of*W*H, W, H, Out+of*Wo*Ho, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, PadIn, PadIn);
+
+	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM);
+	gap_waitbarrier(0);
+}
+
 void KerParPool2x2Stride2_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 
 {
@@ -1350,6 +1480,32 @@ void KerParPool2x2Stride2_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 	else	 for (unsigned int of=First; of<Last; of++) KerAvgPool2x2Stride2_SQ8(In+of*W*H, W, H, Out+of*Wo*Ho, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, PadIn, PadIn);
 
 	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUN);
+	gap_waitbarrier(0);
+}
+
+void KerParPool2x2Stride2_ReLUMN_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	unsigned int FS=2,S=2;
+	signed char * __restrict__ In = Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	int PoolMax = Arg->PoolMax;
+	v4s PadIn = Arg->Pad;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	if (PoolMax) for (unsigned int of=First; of<Last; of++) KerMaxPool2x2Stride2_SQ8(In+of*W*H, W, H, Out+of*Wo*Ho, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, PadIn, PadIn);
+	else	 for (unsigned int of=First; of<Last; of++) KerAvgPool2x2Stride2_SQ8(In+of*W*H, W, H, Out+of*Wo*Ho, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, PadIn, PadIn);
+
+	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN);
 	gap_waitbarrier(0);
 }
 
@@ -1450,6 +1606,72 @@ void KerParPoolNxNStrideS_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 		}
 	}
 	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUN);
+	gap_waitbarrier(0);
+}
+
+void KerParPoolNxNStrideS_ReLUM_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	unsigned int FS=Arg->FS, S=Arg->S;
+	signed char * __restrict__ In = Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = Arg->Out;
+	int PoolMax = Arg->PoolMax;
+	signed char * __restrict__ Infos = Arg->Infos;
+	v4s PadIn = Arg->Pad;
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	if (PoolMax) {
+		for (unsigned int of=First; of<Last; of++) {
+			KerMaxPoolNxNStrideS_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerMaxPoolNxNStrideS_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+		}
+	} else {
+		for (unsigned int of=First; of<Last; of++) {
+			KerAvgPoolNxNStrideS_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerAvgPoolNxNStrideS_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+		}
+	}
+	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM);
+	gap_waitbarrier(0);
+}
+
+void KerParPoolNxNStrideS_ReLUMN_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	unsigned int FS=Arg->FS, S=Arg->S;
+	signed char * __restrict__ In = Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = Arg->Out;
+	int PoolMax = Arg->PoolMax;
+	signed char * __restrict__ Infos = Arg->Infos;
+	v4s PadIn = Arg->Pad;
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	if (PoolMax) {
+		for (unsigned int of=First; of<Last; of++) {
+			KerMaxPoolNxNStrideS_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerMaxPoolNxNStrideS_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+		}
+	} else {
+		for (unsigned int of=First; of<Last; of++) {
+			KerAvgPoolNxNStrideS_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerAvgPoolNxNStrideS_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FS, FS, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, S);
+		}
+	}
+	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN);
 	gap_waitbarrier(0);
 }
 
@@ -1559,6 +1781,76 @@ void KerParPoolNxMStrideSxSy_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 	gap_waitbarrier(0);
 }
 
+void KerParPoolNxMStrideSxSy_ReLUM_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	unsigned int FSx=Arg->FS, Sx=Arg->S;
+	unsigned int FSy=Arg->FSy, Sy=Arg->Sy;
+	signed char * __restrict__ In = Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	int PoolMax = Arg->PoolMax;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+	v4s PadIn = Arg->Pad;
+
+	int Wo = (Arg->UsedW-FSx+PadIn[0]+PadIn[1])/Sx + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FSx, PadIn[0], Sx)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FSx, PadIn[0], Sx));
+	int Ho = (Arg->UsedH-FSy+PadIn[2]+PadIn[3])/Sy + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FSy, PadIn[2], Sy)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FSy, PadIn[2], Sy));
+
+	if (PoolMax) {
+		for (unsigned int of=First; of<Last; of++) {
+			KerMaxPoolNxMStrideSxSy_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerMaxPoolNxMStrideSxSy_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+		}
+	} else {
+		for (unsigned int of=First; of<Last; of++) {
+			KerAvgPoolNxMStrideSxSy_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerAvgPoolNxMStrideSxSy_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+		}
+	}
+	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM);
+	gap_waitbarrier(0);
+}
+
+void KerParPoolNxMStrideSxSy_ReLUMN_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	unsigned int FSx=Arg->FS, Sx=Arg->S;
+	unsigned int FSy=Arg->FSy, Sy=Arg->Sy;
+	signed char * __restrict__ In = Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	int PoolMax = Arg->PoolMax;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+	v4s PadIn = Arg->Pad;
+
+	int Wo = (Arg->UsedW-FSx+PadIn[0]+PadIn[1])/Sx + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FSx, PadIn[0], Sx)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FSx, PadIn[0], Sx));
+	int Ho = (Arg->UsedH-FSy+PadIn[2]+PadIn[3])/Sy + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FSy, PadIn[2], Sy)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FSy, PadIn[2], Sy));
+
+	if (PoolMax) {
+		for (unsigned int of=First; of<Last; of++) {
+			KerMaxPoolNxMStrideSxSy_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerMaxPoolNxMStrideSxSy_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+		}
+	} else {
+		for (unsigned int of=First; of<Last; of++) {
+			KerAvgPoolNxMStrideSxSy_Body_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn[0], PadIn[2], W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerAvgPoolNxMStrideSxSy_Border_SQ8(In+of*W*H, Out+of*Wo*Ho, FSx, FSy, PadIn, PadIn, W, H, Wo, Wo_F, Wo_L, Ho, Ho_F, Ho_L, Sx, Sy);
+		}
+	}
+	KerParPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN);
+	gap_waitbarrier(0);
+}
+
 void KerParGlobalMaxPool_SQ8(KerGlobalPool_SQ8_T *Arg)
 
 {
@@ -1586,8 +1878,8 @@ void KerParGlobalMaxPool_Reduct_SQ8(KerGlobalPool_SQ8_T *Arg)
 	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	if (DoScale && ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = AT_SCALE(In[of], ActScale, ActScaleN);
-	else for (unsigned int of=First; of<Last; of++) Out[of] = In[of];
+	if (DoScale && ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_SCALE(In[of], ActScale, ActScaleN), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(In[of], 7);
 	gap_waitbarrier(0);
 }
 
@@ -1602,8 +1894,8 @@ void KerParGlobalMaxPool_Reduct_ReLU_SQ8(KerGlobalPool_SQ8_T *Arg)
 	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, AT_SCALE(In[of], ActScale, ActScaleN));
-	else for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, In[of]);
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, AT_SCALE(In[of], ActScale, ActScaleN)), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, In[of]), 7);
 	gap_waitbarrier(0);
 }
 
@@ -1619,8 +1911,42 @@ void KerParGlobalMaxPool_Reduct_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
 	int A0 = Infos[AT_INF_A0];
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = AT_CLIP_POS(AT_SCALE(In[of], ActScale, ActScaleN), A0);
-	else for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, Min(A0, In[of]));
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_CLIP_POS(AT_SCALE(In[of], ActScale, ActScaleN), A0), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, Min(A0, In[of])), 7);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalMaxPool_Reduct_ReLUM_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	int A0 = Infos[AT_INF_A0];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, AT_SCALE(In[of], ActScale, ActScaleN)), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, In[of]), 7);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalMaxPool_Reduct_ReLUMN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	int A0 = Infos[AT_INF_A0], B0 = Infos[AT_INF_B0];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, Min(AT_SCALE(In[of], ActScale, ActScaleN), B0)), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, Min(In[of], B0)), 7);
 	gap_waitbarrier(0);
 }
 
@@ -1649,10 +1975,11 @@ void KerParGlobalAvgPool_Reduct_SQ8(KerGlobalPool_SQ8_T *Arg)
 	signed char *__restrict__ Infos = Arg->Infos;
 	int DoScale = Arg->DoScale;
 	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	if (DoScale && ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = AT_SCALE(gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7), ActScale, ActScaleN);
-	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7);
+	if (DoScale && ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_SCALE(AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN), ActScale, ActScaleN), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN), 7);
 	gap_waitbarrier(0);
 }
 
@@ -1665,10 +1992,11 @@ void KerParGlobalAvgPool_Reduct_ReLU_SQ8(KerGlobalPool_SQ8_T *Arg)
 	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
 	signed char *__restrict__ Infos = Arg->Infos;
 	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, AT_SCALE(gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7), ActScale, ActScaleN));
-	else for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7));
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, AT_SCALE(AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN), ActScale, ActScaleN)), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN)), 7);
 	gap_waitbarrier(0);
 }
 
@@ -1681,13 +2009,156 @@ void KerParGlobalAvgPool_Reduct_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
 	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
 	signed char *__restrict__ Infos = Arg->Infos;
 	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
 	int A0 = Infos[AT_INF_A0];
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = Max(0, Min(A0, AT_SCALE(gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7), ActScale, ActScaleN)));
-	else for (unsigned int of=First; of<Last; of++) Out[of] = AT_CLIP_POS(gap_roundnorm_reg((In[of]<<7)/((int)(W*H)), 7), A0);
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, Min(A0, AT_SCALE(AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN), ActScale, ActScaleN))), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_CLIP_POS(AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN), A0), 7);
 	gap_waitbarrier(0);
 }
+
+void KerParGlobalAvgPool_Reduct_ReLUM_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+	int A0 = Infos[AT_INF_A0];
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, AT_SCALE(AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN), ActScale, ActScaleN)), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN)), 7);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalAvgPool_Reduct_ReLUMN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+	int A0 = Infos[AT_INF_A0], B0 = Infos[AT_INF_B0];
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, Min(B0, AT_SCALE(AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN), ActScale, ActScaleN))), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, Min(B0, AT_SCALE((In[of]<<7)/((int)(W*H)), Scale, ScaleN))), 7);
+	gap_waitbarrier(0);
+}
+
+
+void KerParGlobalSumPool_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	int * __restrict__ Out = (int *__restrict__) Arg->Out;
+	int FirstTile = Arg->FirstTile;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalSumPool_SQ8(In+of*W*H, Out+of, W, H, FirstTile);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPool_Reduct_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	int DoScale = Arg->DoScale;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	if (DoScale && ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_SCALE(AT_SCALE(In[of], Scale, ScaleN), ActScale, ActScaleN), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_SCALE(In[of], Scale, ScaleN), 7);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPool_Reduct_ReLU_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, AT_SCALE(AT_SCALE(In[of], Scale, ScaleN), ActScale, ActScaleN)), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, AT_SCALE(In[of], Scale, ScaleN)), 7);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPool_Reduct_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
+	int A0 = Infos[AT_INF_A0];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(0, Min(A0, AT_SCALE(AT_SCALE(In[of], Scale, ScaleN), ActScale, ActScaleN))), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(AT_CLIP_POS(AT_SCALE(In[of], Scale, ScaleN), A0), 7);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPool_Reduct_ReLUM_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+	int A0 = Infos[AT_INF_A0];
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, AT_SCALE(AT_SCALE(In[of], Scale, ScaleN), ActScale, ActScaleN)), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, AT_SCALE(In[of], Scale, ScaleN)), 7);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPool_Reduct_ReLUMN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	int * __restrict__ In = (int *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char *__restrict__ Infos = Arg->Infos;
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN];
+	unsigned int Scale = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALE], ScaleN = ((unsigned char *)Infos)[AT_INF_GLOBAL_SUM_SCALEN];
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+	int A0 = Infos[AT_INF_A0], B0 = Infos[AT_INF_B0];
+
+	if (ActScale) for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, Min(B0, AT_SCALE(AT_SCALE(In[of], Scale, ScaleN), ActScale, ActScaleN))), 7);
+	else for (unsigned int of=First; of<Last; of++) Out[of] = gap_clip(Max(A0, Min(B0, AT_SCALE(In[of], Scale, ScaleN))), 7);
+	gap_waitbarrier(0);
+}
+
 
 void KerParGlobalMaxPoolFullFeat_SQ8(KerGlobalPool_SQ8_T *Arg)
 
@@ -1738,6 +2209,38 @@ void KerParGlobalMaxPoolFullFeat_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
 	gap_waitbarrier(0);
 }
 
+void KerParGlobalMaxPoolFullFeat_ReLUM_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalMaxPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUM);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalMaxPoolFullFeat_ReLUMN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalMaxPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUMN);
+	gap_waitbarrier(0);
+}
+
 void KerParGlobalAvgPoolFullFeat_SQ8(KerGlobalPool_SQ8_T *Arg)
 
 {
@@ -1750,7 +2253,7 @@ void KerParGlobalAvgPoolFullFeat_SQ8(KerGlobalPool_SQ8_T *Arg)
 
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H);
+	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
 	if (DoScale) KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_NONE);
 	gap_waitbarrier(0);
 }
@@ -1766,7 +2269,7 @@ void KerParGlobalAvgPoolFullFeat_ReLU_SQ8(KerGlobalPool_SQ8_T *Arg)
 
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H);
+	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
 	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELU);
 	gap_waitbarrier(0);
 }
@@ -1782,8 +2285,121 @@ void KerParGlobalAvgPoolFullFeat_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
 
 	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
 
-	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H);
+	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
 	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUN);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalAvgPoolFullFeat_ReLUM_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUM);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalAvgPoolFullFeat_ReLUMN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalAvgPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUMN);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPoolFullFeat_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	int DoScale = Arg->DoScale;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalSumPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
+	if (DoScale) KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_NONE);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPoolFullFeat_ReLU_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalSumPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELU);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPoolFullFeat_ReLUN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalSumPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUN);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPoolFullFeat_ReLUM_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalSumPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUM);
+	gap_waitbarrier(0);
+}
+
+void KerParGlobalSumPoolFullFeat_ReLUMN_SQ8(KerGlobalPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = (signed char *__restrict__) Arg->In;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int Feat = Arg->Feat;
+	signed char * __restrict__ Out = (signed char *__restrict__) Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+
+	unsigned int CoreId = gap_coreid(), Chunk = ChunkSize(Feat), First = Chunk*CoreId, Last = Min(First+Chunk, Feat);
+
+	for (unsigned int of=First; of<Last; of++) KerGlobalSumPoolFullFeat_SQ8(In+of*W*H, Out+of, W, H, (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALE], (unsigned char) Infos[AT_INF_GLOBAL_SUM_SCALEN]);
+	KerParPoolActivation(Out, 1, 1, First, Last, Infos, ACT_RELUMN);
 	gap_waitbarrier(0);
 }
 
@@ -1824,17 +2440,27 @@ static void KerPoolActivation(signed char *__restrict__ InOut, int W, int H, int
 				case ACT_NONE:      Ker_Activation_SQ8(InOut+Off, Size, ACT_NONE,      ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_RELU:      Ker_Activation_SQ8(InOut+Off, Size, ACT_RELU,      ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_RELUN:     Ker_Activation_SQ8(InOut+Off, Size, ACT_RELUN,     ActScale, ActScaleN, A0, B0, C0); break;
+				case ACT_RELUM:     Ker_Activation_SQ8(InOut+Off, Size, ACT_RELUM,     ActScale, ActScaleN, A0, B0, C0); break;
+				case ACT_RELUMN:    Ker_Activation_SQ8(InOut+Off, Size, ACT_RELUMN,    ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_HSIGMOID:  Ker_Activation_SQ8(InOut+Off, Size, ACT_HSIGMOID,  ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_HSWISH:    Ker_Activation_SQ8(InOut+Off, Size, ACT_HSWISH,    ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_LEAKYRELU: Ker_Activation_SQ8(InOut+Off, Size, ACT_LEAKYRELU, ActScale, ActScaleN, A0, B0, C0); break;
 			}
 		} else if (Activation == ACT_RELU) {
 			unsigned int Off = W*First, Size = W*(Last-First);
-			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELU, 0);
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELU, 0, 0);
 		} else if (Activation == ACT_RELUN) {
 			unsigned int Off = W*First, Size = W*(Last-First);
 			int A0 = Infos[AT_INF_A0];
-			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUN, A0);
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUN, A0, 0);
+		} else if (Activation == ACT_RELUM) {
+			unsigned int Off = W*First, Size = W*(Last-First);
+			int A0 = Infos[AT_INF_A0];
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUM, A0, 0);
+		} else if (Activation == ACT_RELUMN) {
+			unsigned int Off = W*First, Size = W*(Last-First);
+			int A0 = Infos[AT_INF_A0], B0 = Infos[AT_INF_B0];
+			Ker_ActivationScale1_SQ8(InOut+Off, Size, ACT_RELUMN, A0, B0);
 		}
 	} else {
 		if (Infos[AT_INF_ACTSCALE]) {
@@ -1844,15 +2470,23 @@ static void KerPoolActivation(signed char *__restrict__ InOut, int W, int H, int
 				case ACT_NONE:      Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_NONE,      ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_RELU:      Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELU,      ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_RELUN:     Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELUN,     ActScale, ActScaleN, A0, B0, C0); break;
+				case ACT_RELUM:     Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELUM,     ActScale, ActScaleN, A0, B0, C0); break;
+				case ACT_RELUMN:    Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELUMN,    ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_HSIGMOID:  Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_HSIGMOID,  ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_HSWISH:    Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_HSWISH,    ActScale, ActScaleN, A0, B0, C0); break;
 				case ACT_LEAKYRELU: Ker_Activation_Ver_SQ8(InOut+First, W, H, First, Last, ACT_LEAKYRELU, ActScale, ActScaleN, A0, B0, C0); break;
 			}
 		} else if (Activation == ACT_RELU) {
-			Ker_ActivationScale1_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELU, 0);
+			Ker_ActivationScale1_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELU, 0, 0);
 		} else if (Activation == ACT_RELUN) {
 			int A0 = Infos[AT_INF_A0];
-			Ker_ActivationScale1_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELUN, A0);
+			Ker_ActivationScale1_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELUN, A0, 0);
+		} else if (Activation == ACT_RELUM) {
+			int A0 = Infos[AT_INF_A0];
+			Ker_ActivationScale1_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELUM, A0, 0);
+		} else if (Activation == ACT_RELUMN) {
+			int A0 = Infos[AT_INF_A0], B0 = Infos[AT_INF_B0];
+			Ker_ActivationScale1_Ver_SQ8(InOut+First, W, H, First, Last, ACT_RELUMN, A0, B0);
 		}
 	}
 }
@@ -1974,6 +2608,86 @@ void KerPool2x2Stride2_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 		if (PoolMax) KerMaxPool2x2Stride2_SQ8(In, W, H, Out, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), PadIn, PadOrg);
 		else	 KerAvgPool2x2Stride2_SQ8(In, W, H, Out, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), PadIn, PadOrg);
 		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUN, 0);
+	}
+	gap_waitbarrier(0);
+}
+
+void KerPool2x2Stride2_ReLUM_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = Arg->In;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int FS = 2, S = 2;
+	v4s PadIn = Arg->Pad;
+	int PoolMax = Arg->PoolMax;
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	unsigned int CoreId = gap_coreid();
+
+	if (Arg->Orientation) { // Horizontal
+		unsigned int Chunk = ChunkSize(Wo);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Wo);
+		v4s PadOrg = PadIn;
+		PadIn[0] *= (First==0); PadIn[1] *= (Last==Wo);
+		if (PoolMax) KerMaxPool2x2Stride2_SQ8(In, W, H, Out, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, PadIn, PadOrg);
+		else	 KerAvgPool2x2Stride2_SQ8(In, W, H, Out, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, PadIn, PadOrg);
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM, 1);
+	} else {
+		unsigned int Chunk = ChunkSize(Ho);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Ho);
+		v4s PadOrg = PadIn;
+		PadIn[2] *= (First==0); PadIn[3] *= (Last==Ho);
+		if (PoolMax) KerMaxPool2x2Stride2_SQ8(In, W, H, Out, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), PadIn, PadOrg);
+		else	 KerAvgPool2x2Stride2_SQ8(In, W, H, Out, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), PadIn, PadOrg);
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM, 0);
+	}
+	gap_waitbarrier(0);
+}
+
+void KerPool2x2Stride2_ReLUMN_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = Arg->In;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int FS = 2, S = 2;
+	v4s PadIn = Arg->Pad;
+	int PoolMax = Arg->PoolMax;
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	unsigned int CoreId = gap_coreid();
+
+	if (Arg->Orientation) { // Horizontal
+		unsigned int Chunk = ChunkSize(Wo);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Wo);
+		v4s PadOrg = PadIn;
+		PadIn[0] *= (First==0); PadIn[1] *= (Last==Wo);
+		if (PoolMax) KerMaxPool2x2Stride2_SQ8(In, W, H, Out, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, PadIn, PadOrg);
+		else	 KerAvgPool2x2Stride2_SQ8(In, W, H, Out, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, PadIn, PadOrg);
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN, 1);
+	} else {
+		unsigned int Chunk = ChunkSize(Ho);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Ho);
+		v4s PadOrg = PadIn;
+		PadIn[2] *= (First==0); PadIn[3] *= (Last==Ho);
+		if (PoolMax) KerMaxPool2x2Stride2_SQ8(In, W, H, Out, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), PadIn, PadOrg);
+		else	 KerAvgPool2x2Stride2_SQ8(In, W, H, Out, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), PadIn, PadOrg);
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN, 0);
 	}
 	gap_waitbarrier(0);
 }
@@ -2125,6 +2839,106 @@ void KerPoolNxNStrideS_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 			if ((int) PadIn) KerAvgPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
 		}
 		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUN, 0);
+	}
+	gap_waitbarrier(0);
+}
+
+void KerPoolNxNStrideS_ReLUM_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = Arg->In;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int FS = Arg->FS, S = Arg->S;
+	v4s PadIn = Arg->Pad;
+	int PoolMax = Arg->PoolMax;
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	unsigned int CoreId = gap_coreid();
+
+	if (Arg->Orientation) { // Horizontal
+		unsigned int Chunk = ChunkSize(Wo);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Wo);
+		v4s PadOrg = PadIn;
+		PadIn[0] *= (First==0); PadIn[1] *= (Last==Wo);
+		if (PoolMax) {
+			KerMaxPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerMaxPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+		} else {
+			KerAvgPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerAvgPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM, 1);
+	} else {
+		unsigned int Chunk = ChunkSize(Ho);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Ho);
+		v4s PadOrg = PadIn;
+		PadIn[2] *= (First==0); PadIn[3] *= (Last==Ho);
+		if (PoolMax) {
+			KerMaxPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+			if ((int) PadIn) KerMaxPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+		} else {
+			KerAvgPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+			if ((int) PadIn) KerAvgPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM, 0);
+	}
+	gap_waitbarrier(0);
+}
+
+void KerPoolNxNStrideS_ReLUMN_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = Arg->In;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int FS = Arg->FS, S = Arg->S;
+	v4s PadIn = Arg->Pad;
+	int PoolMax = Arg->PoolMax;
+
+	int Wo = (Arg->UsedW-FS+PadIn[0]+PadIn[1])/S + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FS, PadIn[0], S)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FS, PadIn[0], S));
+	int Ho = (Arg->UsedH-FS+PadIn[2]+PadIn[3])/S + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FS, PadIn[2], S)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FS, PadIn[2], S));
+
+	unsigned int CoreId = gap_coreid();
+
+	if (Arg->Orientation) { // Horizontal
+		unsigned int Chunk = ChunkSize(Wo);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Wo);
+		v4s PadOrg = PadIn;
+		PadIn[0] *= (First==0); PadIn[1] *= (Last==Wo);
+		if (PoolMax) {
+			KerMaxPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerMaxPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+		} else {
+			KerAvgPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+			if ((int) PadIn) KerAvgPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, S);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN, 1);
+	} else {
+		unsigned int Chunk = ChunkSize(Ho);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Ho);
+		v4s PadOrg = PadIn;
+		PadIn[2] *= (First==0); PadIn[3] *= (Last==Ho);
+		if (PoolMax) {
+			KerMaxPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+			if ((int) PadIn) KerMaxPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+		} else {
+			KerAvgPoolNxNStrideS_Body_SQ8(In, Out, FS, FS, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+			if ((int) PadIn) KerAvgPoolNxNStrideS_Border_SQ8(In, Out, FS, FS, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), S);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN, 0);
 	}
 	gap_waitbarrier(0);
 }
@@ -2282,4 +3096,931 @@ void KerPoolNxMStrideSxSy_ReLUN_SQ8(KerPool_SQ8_T *Arg)
 	}
 	gap_waitbarrier(0);
 }
+
+
+void KerPoolNxMStrideSxSy_ReLUM_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = Arg->In;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int FSx = Arg->FS, Sx = Arg->S;
+	unsigned int FSy = Arg->FSy, Sy = Arg->Sy;
+	v4s PadIn = Arg->Pad;
+	int PoolMax = Arg->PoolMax;
+
+	int Wo = (Arg->UsedW-FSx+PadIn[0]+PadIn[1])/Sx + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FSx, PadIn[0], Sx)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FSx, PadIn[0], Sx));
+	int Ho = (Arg->UsedH-FSy+PadIn[2]+PadIn[3])/Sy + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FSy, PadIn[2], Sy)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FSy, PadIn[2], Sy));
+
+	unsigned int CoreId = gap_coreid();
+
+	if (Arg->Orientation) { // Horizontal
+		unsigned int Chunk = ChunkSize(Wo);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Wo);
+		v4s PadOrg = PadIn;
+		PadIn[0] *= (First==0); PadIn[1] *= (Last==Wo);
+		if (PoolMax) {
+			KerMaxPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSy, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerMaxPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+		} else {
+			KerAvgPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSy, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerAvgPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM, 1);
+	} else {
+		unsigned int Chunk = ChunkSize(Ho);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Ho);
+		v4s PadOrg = PadIn;
+		PadIn[2] *= (First==0); PadIn[3] *= (Last==Ho);
+		if (PoolMax) {
+			KerMaxPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSy, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+			if ((int) PadIn) KerMaxPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+		} else {
+			KerAvgPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSx, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+			if ((int) PadIn) KerAvgPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUM, 0);
+	}
+	gap_waitbarrier(0);
+}
+
+void KerPoolNxMStrideSxSy_ReLUMN_SQ8(KerPool_SQ8_T *Arg)
+
+{
+	signed char * __restrict__ In = Arg->In;
+	signed char * __restrict__ Out = Arg->Out;
+	signed char * __restrict__ Infos = Arg->Infos;
+	unsigned int W = Arg->W, H = Arg->H;
+	unsigned int FSx = Arg->FS, Sx = Arg->S;
+	unsigned int FSy = Arg->FSy, Sy = Arg->Sy;
+	v4s PadIn = Arg->Pad;
+	int PoolMax = Arg->PoolMax;
+
+	int Wo = (Arg->UsedW-FSx+PadIn[0]+PadIn[1])/Sx + 1;
+	int Wo_F = Min(Wo, FirstDefinedOutput(FSx, PadIn[0], Sx)), Wo_L = Max(Wo_F, LastDefinedOutput(Arg->UsedW, FSx, PadIn[0], Sx));
+	int Ho = (Arg->UsedH-FSy+PadIn[2]+PadIn[3])/Sy + 1;
+	int Ho_F = Min(Ho, FirstDefinedOutput(FSy, PadIn[2], Sy)), Ho_L = Max(Ho_F, LastDefinedOutput(Arg->UsedH, FSy, PadIn[2], Sy));
+
+	unsigned int CoreId = gap_coreid();
+
+	if (Arg->Orientation) { // Horizontal
+		unsigned int Chunk = ChunkSize(Wo);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Wo);
+		v4s PadOrg = PadIn;
+		PadIn[0] *= (First==0); PadIn[1] *= (Last==Wo);
+		if (PoolMax) {
+			KerMaxPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSy, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerMaxPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+		} else {
+			KerAvgPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSy, PadOrg[0], PadOrg[2], W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+			if ((int) PadIn) KerAvgPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Max(First, Wo_F), Min(Last, Wo_L), Ho, Ho_F, Ho_L, Sx, Sy);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN, 1);
+	} else {
+		unsigned int Chunk = ChunkSize(Ho);
+		unsigned int First = Chunk*CoreId;
+		unsigned int Last = Min(First+Chunk, Ho);
+		v4s PadOrg = PadIn;
+		PadIn[2] *= (First==0); PadIn[3] *= (Last==Ho);
+		if (PoolMax) {
+			KerMaxPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSy, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+			if ((int) PadIn) KerMaxPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+		} else {
+			KerAvgPoolNxMStrideSxSy_Body_SQ8(In, Out, FSx, FSx, PadOrg[0], PadOrg[2], W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+			if ((int) PadIn) KerAvgPoolNxMStrideSxSy_Border_SQ8(In, Out, FSx, FSy, PadIn, PadOrg, W, H, Wo, Wo_F, Wo_L, Ho, Max(First, Ho_F), Min(Last, Ho_L), Sx, Sy);
+		}
+		KerPoolActivation(Out, Wo, Ho, First, Last, Infos, ACT_RELUMN, 0);
+	}
+	gap_waitbarrier(0);
+}
+
+
+/* HWC Version */
+
+#define KER_POOL_ACT(Activation, p_type, n_bits, is_unsigned) \
+do { \
+	int Size = Wo*Ho*Feat; \
+	int CoreId = gap_coreid(), ChunkCell = ChunkSize(Size), First = CoreId*ChunkCell, Last  = Min(First+ChunkCell, Size); \
+	signed char * __restrict__ Infos = (signed char *__restrict__) Arg->Infos; \
+	unsigned int ActScale = ((unsigned char *)Infos)[AT_INF_ACTSCALE], ActScaleN = ((unsigned char *)Infos)[AT_INF_ACTSCALEN]; \
+	int A0 = arr_at_as(Infos, AT_INF_A0, p_type); int B0 = arr_at_as(Infos, AT_INF_B0, p_type); int C0 = arr_at_as(Infos, AT_INF_C0, p_type); \
+\
+	for (int i=First; i<Last; i++) { \
+		int Acc0 = Out[i]; \
+		ACT_SWITCH(Acc0, Activation, ActScale, ActScaleN, A0, B0, C0, 16-n_bits, is_unsigned); \
+		Out[i] = OUT_CLIP(Acc0, is_unsigned, n_bits); \
+	} \
+	gap_waitbarrier(0); \
+} while(0)
+
+static inline void __attribute__((always_inline)) KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(
+	Ker_MM_Pool_SQ8_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+
+{
+        signed char *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        signed char * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+
+	v4s M_Init = (v4s) {-127,-127,-127,-127};
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Last-First;
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/4; f++) {
+				v4s M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_max4(M, ((v4s *)(In+j*W*Feat + i*Feat+First))[f]);
+				}
+				((int *)(Out+l*Wo*Feat + c*Feat+First))[f] = (int) M;
+			}
+			if (Iter&0x2) {
+				v4s M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_max4(M, (v4s) (int) ((short int *)(In+j*W*Feat + i*Feat+First))[0]);
+				}
+				((short int *)(Out+l*Wo*Feat + c*Feat+First))[0] = (int) M;
+			}
+			if (Iter&0x1) {
+				v4s M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_max4(M, (v4s) (int) ((signed char *)(In+j*W*Feat + i*Feat+First))[0]);
+				}
+				((signed char *)(Out+l*Wo*Feat + c*Feat+First))[0] = (int) M;
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 0);
+        }
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_NONE);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLU_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUN_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELUN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUM_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELUM);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUMN_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELUMN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSigmoid_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSwish_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_HSWISH);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_LeakyReLU_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Sigmoid_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_SIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Tanh_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_TANH);
+}
+
+static inline void __attribute__((always_inline)) KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(
+	Ker_MM_Pool_USQ8_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+
+{
+        unsigned char *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        unsigned char * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+
+	v4u M_Init = (v4u) {0, 0, 0, 0};
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Max(0, Last-First);
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/4; f++) {
+				v4u M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_maxu4(M, ((v4u *)(In+j*W*Feat + i*Feat+First))[f]);
+				}
+				((unsigned int *)(Out+l*Wo*Feat + c*Feat+First))[f] = (unsigned int) M;
+			}
+			if (Iter&0x2) {
+				v4u M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_maxu4(M, (v4u) (int) ((short int *)(In+j*W*Feat + i*Feat+First))[0]);
+				}
+				((short int *)(Out+l*Wo*Feat + c*Feat+First))[Iter/2-1] = (int) M;
+			}
+			if (Iter&0x1) {
+				v4u M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_maxu4(M, (v4u) (int) ((unsigned char *)(In+j*W*Feat + i*Feat+First))[0]);
+				}
+				((signed char *)(Out+l*Wo*Feat + c*Feat+First))[Iter-1] = (int) M;
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 1);
+        }
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_NONE);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLU_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUN_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELUN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUM_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELUM);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUMN_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELUMN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSigmoid_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSwish_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_HSWISH);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_LeakyReLU_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Sigmoid_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_SIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Tanh_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_TANH);
+}
+
+static inline void __attribute__((always_inline)) KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(
+	Ker_MM_Pool_SQ8_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+
+{
+        signed char *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        signed char * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+	unsigned int PoolFactor = (1<<16)/(Fx*Fy);
+	v4s C0 = (v4s) (int) 1;
+	v4s C1 = (v4s)((int)C0<<8);
+	v4s C2 = (v4s)((int)C1<<8);
+	v4s C3 = (v4s)((int)C2<<8);
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Last-First;
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/4; f++) {
+				int S0=0, S1=0, S2=0, S3=0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) {
+						v4s X = ((v4s *)(In+j*W*Feat + i*Feat+First))[f];
+						S0 = gap_sumdotp4(X, C0, S0);
+						S1 = gap_sumdotp4(X, C1, S1);
+						S2 = gap_sumdotp4(X, C2, S2);
+						S3 = gap_sumdotp4(X, C3, S3);
+					}
+				}
+				S0 = gap_clip(gap_roundnorm(S0*PoolFactor, 16), 7);
+				S1 = gap_clip(gap_roundnorm(S1*PoolFactor, 16), 7);
+				S2 = gap_clip(gap_roundnorm(S2*PoolFactor, 16), 7);
+				S3 = gap_clip(gap_roundnorm(S3*PoolFactor, 16), 7);
+				((v4s *)(Out+l*Wo*Feat + c*Feat+First))[f] = gap_pack4(S0,S1,S2,S3);
+			}
+			if (Iter&0x2) {
+				int S0=0, S1=0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) {
+						v4s X = (v4s) (int) ((short int *)(In+j*W*Feat + i*Feat+First))[0];
+						S0 = gap_sumdotp4(X, C0, S0);
+						S1 = gap_sumdotp4(X, C1, S1);
+					}
+				}
+				S0 = gap_clip(gap_roundnorm(S0*PoolFactor, 16), 7);
+				S1 = gap_clip(gap_roundnorm(S1*PoolFactor, 16), 7);
+				((short int *)(Out+l*Wo*Feat + c*Feat+First))[0] = S0 | (S1<<8);
+			}
+			if (Iter&0x1) {
+				int S0 = 0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) S0 += ((signed char *)(In+j*W*Feat + i*Feat+First))[0];
+				}
+				S0 = gap_clip(gap_roundnorm(S0*PoolFactor, 16), 7);
+				((signed char *)(Out+l*Wo*Feat + c*Feat+First))[0] = S0;
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 0);
+        }
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_NONE);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLU_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUN_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELUN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUM_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELUM);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUMN_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_RELUMN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSigmoid_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSwish_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_HSWISH);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_LeakyReLU_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Sigmoid_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_SIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Tanh_SQ8(Ker_MM_Pool_SQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ8_act(Arg, ACT_TANH);
+}
+
+static inline void __attribute__((always_inline)) KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(
+	Ker_MM_Pool_USQ8_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+
+{
+        unsigned char *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        unsigned char * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+	unsigned int PoolFactor = (1<<16)/(Fx*Fy);
+	v4u C0 = (v4u) (int) 1;
+	v4u C1 = (v4u)((int)C0<<8);
+	v4u C2 = (v4u)((int)C1<<8);
+	v4u C3 = (v4u)((int)C2<<8);
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Last-First;
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/4; f++) {
+				unsigned int S0=0, S1=0, S2=0, S3=0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) {
+						v4u X = ((v4u *)(In+j*W*Feat + i*Feat+First))[f];
+						S0 = gap_sumdotpu4(X, C0, S0);
+						S1 = gap_sumdotpu4(X, C1, S1);
+						S2 = gap_sumdotpu4(X, C2, S2);
+						S3 = gap_sumdotpu4(X, C3, S3);
+					}
+				}
+				S0 = gap_clipu(gap_roundnormu(S0*PoolFactor, 16), 8);
+				S1 = gap_clipu(gap_roundnormu(S1*PoolFactor, 16), 8);
+				S2 = gap_clipu(gap_roundnormu(S2*PoolFactor, 16), 8);
+				S3 = gap_clipu(gap_roundnormu(S3*PoolFactor, 16), 8);
+				((v4u *)(Out+l*Wo*Feat + c*Feat+First))[f] = gap_packu4(S0,S1,S2,S3);
+			}
+			if (Iter&0x2) {
+				int S0=0, S1=0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) {
+						v4u X = (v4u) (int) ((unsigned short int *)(In+j*W*Feat + i*Feat+First))[0];
+						S0 = gap_sumdotpu4(X, C0, S0);
+						S1 = gap_sumdotpu4(X, C1, S1);
+					}
+				}
+				S0 = gap_clipu(gap_roundnormu(S0*PoolFactor, 16), 8);
+				S1 = gap_clipu(gap_roundnormu(S1*PoolFactor, 16), 8);
+				((unsigned short int *)(Out+l*Wo*Feat + c*Feat+First))[0] = S0 | (S1<<8);
+			}
+			if (Iter&0x1) {
+				int S0 = 0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) S0 += ((unsigned char *)(In+j*W*Feat + i*Feat+First))[0];
+				}
+				S0 = gap_clipu(gap_roundnormu(S0*PoolFactor, 16), 8);
+				((unsigned char *)(Out+l*Wo*Feat + c*Feat+First))[0] = S0;
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 1);
+        }
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_NONE);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLU_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUN_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELUN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUM_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELUM);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUMN_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_RELUMN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSigmoid_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSwish_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_HSWISH);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_LeakyReLU_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Sigmoid_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_SIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Tanh_USQ8(Ker_MM_Pool_USQ8_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ8_act(Arg, ACT_TANH);
+}
+
+
+static inline void __attribute__((always_inline)) KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(
+	Ker_MM_Pool_SQ16_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+{
+        short int *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        short int * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+
+	v2s M_Init = (v2s) {-32767,-32767};
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Last-First;
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/2; f++) {
+				v2s M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_max2(M, ((v2s *)(In+j*W*Feat + i*Feat+First))[f]);
+				}
+				((int *)(Out+l*Wo*Feat + c*Feat+First))[f] = (int) M;
+			}
+			if (Iter&0x1) {
+				v2s M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_max2(M, (v2s) (int) ((signed char *)(In+j*W*Feat + i*Feat+First))[0]);
+				}
+				((signed short *)(Out+l*Wo*Feat + c*Feat+First))[0] = (signed short) M[0];
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 1);
+        }
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_NONE);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLU_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUN_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELUN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUM_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELUM);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUMN_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELUMN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSigmoid_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSwish_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_HSWISH);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_LeakyReLU_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Sigmoid_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_SIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Tanh_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_TANH);
+}
+
+
+static inline void __attribute__((always_inline)) KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(
+	Ker_MM_Pool_USQ16_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+{
+        unsigned short int *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        unsigned short int * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+
+	v2u M_Init = (v2u) {-32767,-32767};
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Last-First;
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/2; f++) {
+				v2u M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_maxu2(M, ((v2u *)(In+j*W*Feat + i*Feat+First))[f]);
+				}
+				((int *)(Out+l*Wo*Feat + c*Feat+First))[f] = (int) M;
+			}
+			if (Iter&0x1) {
+				v2u M = M_Init;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) M = gap_maxu2(M, (v2u) (int) ((signed char *)(In+j*W*Feat + i*Feat+First))[0]);
+				}
+				((unsigned short *)(Out+l*Wo*Feat + c*Feat+First))[0] = (unsigned short) M[0];
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 1);
+        }
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_NONE);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLU_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUN_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELUN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUM_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELUM);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_ReLUMN_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELUMN);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSigmoid_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_HSwish_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_HSWISH);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_LeakyReLU_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Sigmoid_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_SIGMOID);
+}
+
+void KerParMaxPoolNxMStrideSxSy_HWC_Tanh_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParMaxPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_TANH);
+}
+
+
+static inline void __attribute__((always_inline)) KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(
+	Ker_MM_Pool_SQ16_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+{
+        signed short *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        signed short * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+	unsigned int PoolFactor = (1<<16)/(Fx*Fy);
+	v2s C0 = (v2s) (int) 1;
+	v2s C1 = (v2s)((int)C0<16);
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Last-First;
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/4; f++) {
+				int S0=0, S1=0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) {
+						v2s X = ((v2s *)(In+j*W*Feat + i*Feat+First))[f];
+						S0 = gap_sumdotp2(X, C0, S0);
+						S1 = gap_sumdotp2(X, C1, S1);
+					}
+				}
+				S0 = gap_clip(gap_roundnorm(S0*PoolFactor, 16), 15);
+				S1 = gap_clip(gap_roundnorm(S1*PoolFactor, 16), 15);
+				((v2s *)(Out+l*Wo*Feat + c*Feat+First))[f] = gap_pack2(S0,S1);
+			}
+			if (Iter&0x1) {
+				int S0 = 0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) S0 += ((signed short *)(In+j*W*Feat + i*Feat+First))[0];
+				}
+				S0 = gap_clip(gap_roundnorm(S0*PoolFactor, 16), 15);
+				((signed short *)(Out+l*Wo*Feat + c*Feat+First))[0] = S0;
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 1);
+        }
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_NONE);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLU_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUN_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELUN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUM_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELUM);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUMN_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_RELUMN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSigmoid_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSwish_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_HSWISH);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_LeakyReLU_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Sigmoid_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_SIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Tanh_SQ16(Ker_MM_Pool_SQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_SQ16_act(Arg, ACT_TANH);
+}
+
+
+static inline void __attribute__((always_inline)) KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(
+	Ker_MM_Pool_USQ16_T *Arg,
+	CNN_ActivationOper_T Activation
+)
+{
+        unsigned short *__restrict__ In = Arg->In;
+        int W = Arg->W, H = Arg->H;
+        int Fx = Arg->Fx, Sx = Arg->Sx;
+        int Fy = Arg->Fy, Sy = Arg->Sy;
+        int PadL = Arg->Pad[0], PadT = Arg->Pad[2];
+        int Feat = Arg->Feat;
+        unsigned short * __restrict__ Out = Arg->Out;
+        int Wo = Arg->Wo, Ho = Arg->Ho;
+	unsigned int PoolFactor = (1<<16)/(Fx*Fy);
+	v2u C0 = (v2u) (int) 1;
+	v2u C1 = (v2u)((int)C0<16);
+
+	unsigned int CoreId = gap_coreid(), ChunkCell = ChunkSize(Feat), First = CoreId*ChunkCell, Last = Min(Feat, First+ChunkCell);
+	int PosL = Arg->FirstTile?(-PadT):0;
+	int Iter = Last-First;
+        for (int l=0; l<Ho; l++) {
+                int PosC = -PadL;
+                int Tb = Max(PosL, 0), Db = Min(PosL+Fy, H);
+                int OffL = -Tb - Min(PosL, 0);
+                for (int c=0; c<Wo; c++) {
+                        int Lb = Max(PosC, 0), Rb = Min(PosC+Fx, W);
+			for (int f=0; f<Iter/4; f++) {
+				int S0=0, S1=0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) {
+						v2u X = ((v2u *)(In+j*W*Feat + i*Feat+First))[f];
+						S0 = gap_sumdotpu2(X, C0, S0);
+						S1 = gap_sumdotpu2(X, C1, S1);
+					}
+				}
+				S0 = gap_clipu(gap_roundnormu(S0*PoolFactor, 16), 15);
+				S1 = gap_clipu(gap_roundnormu(S1*PoolFactor, 16), 15);
+				((v2u *)(Out+l*Wo*Feat + c*Feat+First))[f] = gap_packu2(S0,S1);
+			}
+			if (Iter&0x1) {
+				int S0 = 0;
+				for (int j=Tb; j<Db; j++) {
+					for (int i=Lb; i<Rb; i++) S0 += ((signed short *)(In+j*W*Feat + i*Feat+First))[0];
+				}
+				S0 = gap_clipu(gap_roundnormu(S0*PoolFactor, 16), 15);
+				((unsigned short *)(Out+l*Wo*Feat + c*Feat+First))[0] = S0;
+			}
+			PosC += Sx;
+                }
+                PosL += Sy;
+        }
+        gap_waitbarrier(0);
+        if (Activation != ACT_NONE) {
+        	KER_POOL_ACT(Activation, unsigned char, 8, 1);
+        }
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_NONE);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLU_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUN_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELUN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUM_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELUM);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_ReLUMN_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_RELUMN);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSigmoid_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_HSIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_HSwish_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_HSWISH);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_LeakyReLU_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_LEAKYRELU);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Sigmoid_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_SIGMOID);
+}
+
+void KerParAvgPoolNxMStrideSxSy_HWC_Tanh_USQ16(Ker_MM_Pool_USQ16_T *Arg) {
+	KerParAvgPoolNxMStrideSxSy_HWC_USQ16_act(Arg, ACT_TANH);
+}
+
 #pragma GCC diagnostic pop

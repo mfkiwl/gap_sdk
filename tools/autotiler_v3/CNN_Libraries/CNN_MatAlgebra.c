@@ -413,6 +413,134 @@ void KerParMatMul_fpd_fp(KerMatMul_fpd_fp_T *Arg)
 	}
 }
 
+void KerParMatMulTransposed_fpd_fp(KerMatMul_fpd_fp_T *Arg)
+
+{
+	short int * __restrict__ In1 = Arg->In1;
+	unsigned int W_In1 = Arg->W_In1;
+	unsigned int H_In1 = Arg->H_In1;
+	short int * __restrict__ In2 = Arg->In2;
+	unsigned int W_In2 = Arg->W_In2; 	/* H_In2 = W_In1 by construction */
+	int * __restrict__ Bias = Arg->Bias;
+	short int * __restrict__ Out = Arg->Out;
+	unsigned int W_Out = Arg->W_Out;
+	unsigned int OutFirstCol = Arg->OutFirstCol;
+	int ColFirst = Arg->ColFirst;
+	unsigned int Norm = Arg->Norm;
+	unsigned int NormBias = Arg->NormBias;
+	int LB = Arg->LB, UB = Arg->UB;
+
+	unsigned int H_In2 = W_In1;
+	unsigned int H_Out = H_In1;
+	unsigned int Line, Col, i;
+
+	unsigned int CoreId = gap_coreid();
+	unsigned int ChunkCell = ChunkSize(H_In1);
+	unsigned int First = CoreId*ChunkCell, Last  = Min(H_In1, First+ChunkCell);
+	int OffLine = 0, OffCol = 0;
+
+	if (ColFirst) OffLine = OutFirstCol; else OffCol = OutFirstCol;
+	short int * pOut = Out + (OffLine+First)*W_Out + OffCol;
+	for (Line=First; Line<Last; Line++) {
+        	short int *pIn2 = In2;
+        	v2s *VIn1 = (v2s *) (&In1[Line*W_In1 + 0]);
+		for (Col=0; Col<W_In2/2; Col++) {
+			v2s *VBuff1 = (v2s *) (pIn2);
+			v2s *VBuff2 = (v2s *) (pIn2+H_In2);
+			int S1 = (Bias[(2*Col  )]<<NormBias);
+			int S2 = (Bias[(2*Col+1)]<<NormBias);
+			for (i=0; i<W_In1/4; i++) {
+				S1 = gap_sumdotp2(VIn1[2*i  ], VBuff1[2*i  ], S1);
+				S1 = gap_sumdotp2(VIn1[2*i+1], VBuff1[2*i+1], S1);
+				S2 = gap_sumdotp2(VIn1[2*i  ], VBuff2[2*i  ], S2);
+				S2 = gap_sumdotp2(VIn1[2*i+1], VBuff2[2*i+1], S2);
+			}
+			for (i=(W_In1/4)*4; i<W_In1; i++) {
+				S1 += In1[Line*W_In1 + i] * pIn2[i];
+				S2 += In1[Line*W_In1 + i] * pIn2[i+H_In2];
+			}
+		       	pOut[(2*Col  )] = Min(Max(AT_NORM(S1, Norm), LB), UB);
+		       	pOut[(2*Col+1)] = Min(Max(AT_NORM(S2, Norm), LB), UB);
+		       	pIn2 += 2*H_In2;
+		}
+		if (W_In2&0x1) { // Last column
+			v2s *VBuff1 = (v2s *) (pIn2);
+			int S1 = (Bias[(2*Col  )]<<NormBias);
+			for (i=0; i<W_In1/4; i++) {
+				S1 = gap_sumdotp2(VIn1[2*i  ], VBuff1[2*i  ], S1);
+				S1 = gap_sumdotp2(VIn1[2*i+1], VBuff1[2*i+1], S1);
+			}
+			for (i=(W_In1/4)*4; i<W_In1; i++) S1 += In1[Line*W_In1 + i] * pIn2[i];
+		       	pOut[(W_In2-1)] = Min(Max(AT_NORM(S1, Norm), LB), UB);
+		}
+		pOut += W_Out;
+	}
+	gap_waitbarrier(0);
+}
+
+void KerParMatMulTransposedNoBias_fp(KerMatMul_fpd_fp_T *Arg)
+
+{
+	short int * __restrict__ In1 = Arg->In1;
+	unsigned int W_In1 = Arg->W_In1;
+	unsigned int H_In1 = Arg->H_In1;
+	short int * __restrict__ In2 = Arg->In2;
+	unsigned int W_In2 = Arg->W_In2; 	/* H_In2 = W_In1 by construction */
+	short int * __restrict__ Out = Arg->Out;
+	unsigned int W_Out = Arg->W_Out;
+	unsigned int OutFirstCol = Arg->OutFirstCol;
+	int ColFirst = Arg->ColFirst;
+	unsigned int Norm = Arg->Norm;
+	int LB = Arg->LB, UB = Arg->UB;
+
+	unsigned int H_In2 = W_In1;
+	unsigned int H_Out = H_In1;
+	unsigned int Line, Col, i;
+
+	unsigned int CoreId = gap_coreid();
+	unsigned int ChunkCell = ChunkSize(H_In1);
+	unsigned int First = CoreId*ChunkCell, Last  = Min(H_In1, First+ChunkCell);
+	int OffLine = 0, OffCol = 0;
+
+	if (ColFirst) OffLine = OutFirstCol; else OffCol = OutFirstCol;
+	short int * pOut = Out + (OffLine+First)*W_Out + OffCol;
+	for (Line=First; Line<Last; Line++) {
+        	short int *pIn2 = In2;
+        	v2s *VIn1 = (v2s *) (&In1[Line*W_In1 + 0]);
+		for (Col=0; Col<W_In2/2; Col++) {
+			v2s *VBuff1 = (v2s *) (pIn2);
+			v2s *VBuff2 = (v2s *) (pIn2+H_In2);
+			int S1 = 0;
+			int S2 = 0;
+			for (i=0; i<W_In1/4; i++) {
+				S1 = gap_sumdotp2(VIn1[2*i  ], VBuff1[2*i  ], S1);
+				S1 = gap_sumdotp2(VIn1[2*i+1], VBuff1[2*i+1], S1);
+				S2 = gap_sumdotp2(VIn1[2*i  ], VBuff2[2*i  ], S2);
+				S2 = gap_sumdotp2(VIn1[2*i+1], VBuff2[2*i+1], S2);
+			}
+			for (i=(W_In1/4)*4; i<W_In1; i++) {
+				S1 += In1[Line*W_In1 + i] * pIn2[i];
+				S2 += In1[Line*W_In1 + i] * pIn2[i+H_In2];
+			}
+		       	pOut[(2*Col  )] = Min(Max(AT_NORM(S1, Norm), LB), UB);
+		       	pOut[(2*Col+1)] = Min(Max(AT_NORM(S2, Norm), LB), UB);
+		       	pIn2 += 2*H_In2;
+		}
+		if (W_In2&0x1) { // Last column
+			v2s *VBuff1 = (v2s *) (pIn2);
+			int S1 = 0;
+			for (i=0; i<W_In1/4; i++) {
+				S1 = gap_sumdotp2(VIn1[2*i  ], VBuff1[2*i  ], S1);
+				S1 = gap_sumdotp2(VIn1[2*i+1], VBuff1[2*i+1], S1);
+			}
+			for (i=(W_In1/4)*4; i<W_In1; i++) S1 += In1[Line*W_In1 + i] * pIn2[i];
+		       	pOut[(W_In2-1)] = Min(Max(AT_NORM(S1, Norm), LB), UB);
+		}
+		pOut += W_Out;
+	}
+	gap_waitbarrier(0);
+}
+
 void KerParMatMulSxSy_fpd_fp(KerMatMul_fpd_fp_T *Arg)
 
 {
@@ -2878,7 +3006,7 @@ void KerParMatMulLeakyrelu_fp(KerMatMul_fp_T *Arg)
 			{
 				int Input = AT_NORM(S, Norm);
 				int Neg = (Input<0), Pos = (Input>=0);
-				int Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT);
+				int Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT);
 				int Acc0 = gap_clip(Neg*Input1+Pos*Input, 15);
 		       		Out[(Line+OffLine)*W_Out+Col+OffCol] = Acc0;
 			}
@@ -2943,7 +3071,7 @@ void KerParMatMulLeakyreluSxSy_fp(KerMatMul_fp_T *Arg)
 			{
 				int Input = AT_NORM(S, Norm);
 				int Neg = (Input<0), Pos = (Input>=0);
-				int Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT);
+				int Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT);
 				int Acc0 = gap_clip(Neg*Input1+Pos*Input, 15);
 				Out[(Line+OffLine)*W_Out+Oo] = Acc0;
 			}
@@ -3025,10 +3153,10 @@ void KerParMatMulLeakyrelu_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S2, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S2 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S3, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S3 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S2, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S2 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S3, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S3 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			v4s R = gap_pack4(S0, S1, S2, S3);
 			*((v4s *) (Out+(Line+OffLine)*W_Out+4*Col+0+OffCol)) = R;
@@ -3059,8 +3187,8 @@ void KerParMatMulLeakyrelu_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			Out[(Line+OffLine)*W_Out+2*Col+0+OffCol] = S0;
 			Out[(Line+OffLine)*W_Out+2*Col+1+OffCol] = S1;
@@ -3087,7 +3215,7 @@ void KerParMatMulLeakyrelu_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			Out[(Line+OffLine)*W_Out+1*Col+0+OffCol] = S0;
                 }
@@ -3153,7 +3281,7 @@ void KerParMatMulLeakyreluSxSy_fps(KerMatMul_fps_T *Arg)
 			{
 				int Input = AT_NORM(S, Norm);
 				int Neg = (Input<0), Pos = (Input>=0);
-				int Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT);
+				int Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT);
 				int Acc0 = gap_clip(Neg*Input1+Pos*Input, 7);
 		       		Out[(Line+OffLine)*W_Out+Oo] = Acc0;
 			}
@@ -3168,7 +3296,6 @@ void KerParMatMulLeakyreluSxSy_fps(KerMatMul_fps_T *Arg)
 	       	gap_waitbarrier(0);
 	}
 }
-
 
 /* Matrix mult for small first matrix in the product, goal is to improve parallelism in this specific situation */
 
@@ -3498,10 +3625,10 @@ void KerParMatMulLeakyreluSmallFeat_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S2, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S2 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S3, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S3 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S2, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S2 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S3, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S3 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			v4s R = gap_pack4(S0, S1, S2, S3);
 			*((v4s *) (Out+l1*H_In2 + l2)) = R;
@@ -3527,8 +3654,8 @@ void KerParMatMulLeakyreluSmallFeat_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			Out[l1*H_In2 + l2+0] = S0;
 			Out[l1*H_In2 + l2+1] = S1;
@@ -3553,7 +3680,7 @@ void KerParMatMulLeakyreluSmallFeat_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			Out[l1*H_In2 + l2+0] = S0;
 		}
@@ -3900,7 +4027,7 @@ void KerParMatMulLeakyreluSmallFeat_fp(KerMatMul_fp_T *Arg)
 
 			int Input = AT_NORM(Acc, Norm);
 			int Neg = (Input<0), Pos = (Input>=0);
-			int Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT);
+			int Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT);
 			Out[l1*H_In2 + l2] = gap_clip(Neg*Input1+Pos*Input, 7);
 		}
 	}
@@ -5149,7 +5276,7 @@ void KerParMatMulLeakyrelu_NoBias_fp(KerMatMul_fp_T *Arg)
 			{
 				int Input = AT_NORM(S, Norm);
 				int Neg = (Input<0), Pos = (Input>=0);
-				int Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT);
+				int Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT);
 				int Acc0 = gap_clip(Neg*Input1+Pos*Input, 15);
 		       		Out[(Line+OffLine)*W_Out+Col+OffCol] = Acc0;
 			}
@@ -5212,7 +5339,7 @@ void KerParMatMulLeakyreluSxSy_NoBias_fp(KerMatMul_fp_T *Arg)
 			{
 				int Input = AT_NORM(S, Norm);
 				int Neg = (Input<0), Pos = (Input>=0);
-				int Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT);
+				int Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT);
 				int Acc0 = gap_clip(Neg*Input1+Pos*Input, 15);
 				Out[(Line+OffLine)*W_Out+Oo] = Acc0;
 			}
@@ -5292,10 +5419,10 @@ void KerParMatMulLeakyrelu_NoBias_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S2, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S2 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S3, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S3 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S2, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S2 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S3, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S3 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			v4s R = gap_pack4(S0, S1, S2, S3);
 			*((v4s *) (Out+(Line+OffLine)*W_Out+4*Col+0+OffCol)) = R;
@@ -5326,8 +5453,8 @@ void KerParMatMulLeakyrelu_NoBias_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
-				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S1, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S1 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			Out[(Line+OffLine)*W_Out+2*Col+0+OffCol] = S0;
 			Out[(Line+OffLine)*W_Out+2*Col+1+OffCol] = S1;
@@ -5354,7 +5481,7 @@ void KerParMatMulLeakyrelu_NoBias_fps(KerMatMul_fps_T *Arg)
 			}
 			{
 				int Input, Neg, Pos, Input1;
-				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
+				Input = AT_NORM(S0, Norm); Neg = (Input<0); Pos = (Input>=0); Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT); S0 = gap_clip(Neg*Input1+Pos*Input, 7);
 			}
 			Out[(Line+OffLine)*W_Out+1*Col+0+OffCol] = S0;
                 }
@@ -5418,7 +5545,7 @@ void KerParMatMulLeakyreluSxSy_NoBias_fps(KerMatMul_fps_T *Arg)
 			{
 				int Input = AT_NORM(S, Norm);
 				int Neg = (Input<0), Pos = (Input>=0);
-				int Input1 = AT_NORM(Input*LEAK_CONSTANT, LEAK_CONSTANT_FORMAT);
+				int Input1 = AT_NORM(Input*LEAK_CONSTANT_FIX, LEAK_CONSTANT_FORMAT);
 				int Acc0 = gap_clip(Neg*Input1+Pos*Input, 7);
 		       		Out[(Line+OffLine)*W_Out+Oo] = Acc0;
 			}

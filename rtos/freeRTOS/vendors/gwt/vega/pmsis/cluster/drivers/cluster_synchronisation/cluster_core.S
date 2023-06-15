@@ -42,6 +42,7 @@
 #include "pmsis/targets/events.h"
 #include "pmsis/targets/periph/cluster/cluster_event_unit/cluster_event_unit_offset.h"
 #include "pmsis/implem/cluster/cluster_data.h"
+#include "pmsis/implem/drivers/pmsis_it.h"
 
 /*******************************************************************************
         EXTERNAL VARIABLES & FUNCTIONS
@@ -123,17 +124,20 @@ cl_master_loop:
         lw s6, 0(s5)                                            // Check if there is cluster task in fifo
         beqz s6, cl_master_sleep                                // Sleep if there are no cluster task in fifo
 
+
         // Load cluster task info :
-        lw t0, PI_CLUSTER_TASK_FUNCTION_OFFSET(s6)              // t0=func
-        lw a0, PI_CLUSTER_TASK_FUNC_ARGS_OFFSET(s6)             // a0=args
+        lw t5, PI_CLUSTER_TASK_TEAM_MASK_OFFSET(s6)             // t5=team_mask
+        lw t3, PI_CLUSTER_TASK_STACK_SLV_SIZE_OFFSET(s6)        // t3=stack_slave_size
         lw t1, PI_CLUSTER_TASK_STACK_PTR_OFFSET(s6)             // t1=stack_ptr
         lw t2, PI_CLUSTER_TASK_STACK_MST_SIZE_OFFSET(s6)        // t2=stack_size
-        lw t3, PI_CLUSTER_TASK_STACK_SLV_SIZE_OFFSET(s6)        // t3=stack_slave_size
-        lw t4, PI_CLUSTER_TASK_TEAM_CORES_OFFSET(s6)            // t4=nb_cores
-        add sp, t1, t2                                          // Master core sp, at the top of stack
-        lw t5, PI_CLUSTER_TASK_TEAM_MASK_OFFSET(s6)             // t5=team_mask
+        //lw t4, PI_CLUSTER_TASK_TEAM_CORES_OFFSET(s6)            // t4=nb_cores
+        p.cnt t4, t5                                            // t4=nb workers involved
+        lw t0, PI_CLUSTER_TASK_FUNCTION_OFFSET(s6)              // t0=func
+        mul t6, t4, t3                                          // Stack used by slaves
+        lw a0, PI_CLUSTER_TASK_FUNC_ARGS_OFFSET(s6)             // a0=args
+        add sp, t1, t2                                          // Master core sp
 
-        or t1, sp, zero                                         // Stack for slaves
+        add sp, sp, t6                                          // Master core sp, at the end of stack
 
         // Workers barrier sync(application)
 cl_master_slave_barrier_sync_config:
@@ -144,14 +148,13 @@ cl_master_slave_barrier_sync_config:
 
         // Master and workers barrier sync
 cl_master_master_slave_barrier_sync_config:
-        //ori a2, t5, (1 << ARCHI_CLUSTER_MASTER_CORE)
         sw a2, CL_DEMUX_EU_HW_BARRIER_TRIGGER_MASK(s7)          // Set master workers barrier sync
         sw a2, CL_DEMUX_EU_HW_BARRIER_TARGET_MASK(s7)           // Set master workers barrier sync
 
 cl_master_dispatch_stack:
-        xori t6, t5, (1 << ARCHI_CLUSTER_MASTER_CORE)
+        //xori t6, t5, (1 << ARCHI_CLUSTER_MASTER_CORE)
         beqz t4, cl_master_core_only                            // Only core master execute task
-        sw t6, CL_DEMUX_EU_DISPATCH_TEAM_CONFIG(s1)             // Config current team
+        sw t5, CL_DEMUX_EU_DISPATCH_TEAM_CONFIG(s1)             // Config current team
         sw s8, CL_DEMUX_EU_DISPATCH_FIFO_ACCESS(s1)             // Dispatch cluster setup to slaves
         sw t1, CL_DEMUX_EU_DISPATCH_FIFO_ACCESS(s1)             // Arg to cl_slave_stack_setup: sp
         sw t3, CL_DEMUX_EU_DISPATCH_FIFO_ACCESS(s1)             // Arg to cl_slave_stack_setup: stack_slave_size
@@ -186,7 +189,7 @@ cl_slave_barrier_trig_wait:
 
 cl_slave_wait_for_dispatch:
         p.elw t0, CL_DEMUX_EU_DISPATCH_FIFO_ACCESS(s1)          // Pop the function to execute
-        p.elw a0, CL_DEMUX_EU_DISPATCH_FIFO_ACCESS(s1)          // Pop function's args
+        lw a0, CL_DEMUX_EU_DISPATCH_FIFO_ACCESS(s1)             // Pop function's args
 
         // Should the core trigger and wait at barrier after exec
         andi t1, t0, 0x1
@@ -217,8 +220,90 @@ cl_slave_entry_no_barrier:
         * Master core is core_id=0, stack is at the top of stack ptr
         * Stack pointer adjusted for slave cores.
         */
+        addi t1, s10, 1                                         // Right coreid offset
         p.elw t0, CL_DEMUX_EU_DISPATCH_FIFO_ACCESS(s1)          // Stack slave size
         mul t0, t0, s10                                         // Slave stack offset
         add sp, a0, t0                                          // Slave sp
         jr ra
+        .endfunc
+
+/*******************************************************************************
+        CLUSTER INTERRUPT VECTOR TABLE
+*******************************************************************************/
+        .section .cluster_vectors_irq, "x"
+        .option norvc;
+
+        j default_handler         /* IRQ=0 : undefined */
+        j default_handler         /* IRQ=1 : undefined */
+        j default_handler         /* IRQ=2 : undefined */
+        j default_handler         /* IRQ=3 : undefined */
+        j default_handler         /* IRQ=4 : undefined */
+        j default_handler         /* IRQ=5 : undefined */
+        j default_handler         /* IRQ=6 : undefined */
+        j default_handler         /* IRQ=7 : undefined */
+        j default_handler         /* IRQ=8 : undefined */
+        j default_handler         /* IRQ=9 : undefined */
+        j default_handler         /* IRQ=10 : undefined */
+        j default_handler         /* IRQ=11 : undefined */
+        j default_handler         /* IRQ=12 : undefined */
+        j default_handler         /* IRQ=13 : undefined */
+        j default_handler         /* IRQ=14 : undefined */
+        j default_handler         /* IRQ=15 : undefined */
+        j default_handler         /* IRQ=16 : undefined */
+        j default_handler         /* IRQ=17 : undefined */
+        j default_handler         /* IRQ=18 : undefined */
+        j default_handler         /* IRQ=19 : undefined */
+        j default_handler         /* IRQ=20 : undefined */
+        j default_handler         /* IRQ=21 : undefined */
+        j default_handler         /* IRQ=22 : undefined */
+        j default_handler         /* IRQ=23 : undefined */
+        //j cl_decompressor_handler /* IRQ=24 : Decompressor Handler. */
+        j default_handler         /* IRQ=24 : undefined */
+        j default_handler         /* IRQ=25 : undefined */
+        j default_handler         /* IRQ=26 : undefined */
+        j default_handler         /* IRQ=27 : undefined */
+        j default_handler         /* IRQ=28 : undefined */
+        j default_handler         /* IRQ=29 : undefined */
+        j default_handler         /* IRQ=30 : undefined */
+        j default_handler         /* IRQ=31 : undefined */
+
+
+/*******************************************************************************
+        CLUSTER INTERRUPT HANDLERS
+*******************************************************************************/
+        .section .text, "ax"
+
+        /* DMA handler. */
+        .extern pi_cl_dma_2d_handler
+        DECLARE cl_dma_handler
+	addi sp, sp, -(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        sw ra, 0*PI_WORD_SIZE(sp)
+        jal ra, ASM_FUNC_SAVE_MINIMAL_CONTEXT
+        la t0, pi_cl_dma_2d_handler
+        jalr ra, t0
+        jal ra, ASM_FUNC_RESTORE_MINIMAL_CONTEXT
+        lw ra, 0*PI_WORD_SIZE(sp)
+        addi sp, sp, +(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        mret
+        .endfunc
+
+        /* Indirect cluster IRQ handler. */
+        DECLARE __pi_cl_irq_handler
+        .extern __pi_cl_irq_handlers
+	addi sp, sp, -(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        sw ra, 0*PI_WORD_SIZE(sp)
+        jal ra, ASM_FUNC_SAVE_MINIMAL_CONTEXT
+
+        csrr t0, mcause
+        la t1, __pi_cl_irq_handlers
+        slli t0, t0, 2
+        p.lw t2, t0(t1)
+        beqz t2, __pi_cl_irq_handler_end
+	jalr ra, t2
+
+__pi_cl_irq_handler_end:
+        jal ra, ASM_FUNC_RESTORE_MINIMAL_CONTEXT
+        lw ra, 0*PI_WORD_SIZE(sp)
+	addi sp, sp, +(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+	mret
         .endfunc

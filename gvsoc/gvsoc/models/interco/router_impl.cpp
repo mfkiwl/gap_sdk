@@ -22,6 +22,7 @@
 #include <vp/vp.hpp>
 #include <vp/itf/io.hpp>
 #include <vp/itf/wire.hpp>
+#include <vp/proxy.hpp>
 #include <stdio.h>
 #include <math.h>
 
@@ -68,7 +69,7 @@ public:
   unsigned long long remove_offset = 0;
   unsigned long long add_offset = 0;
   uint32_t latency = 0;
-  int64_t nextPacketTime = 0;
+  int64_t next_packet_time = 0;
   MapEntry *left = NULL;
   MapEntry *right = NULL;
   vp::io_slave *port = NULL;
@@ -92,7 +93,7 @@ public:
   router(js::config *config);
 
   int build();
-  std::string handle_command(FILE *req_file, FILE *reply_file, std::vector<std::string> args);
+  std::string handle_command(Gv_proxy *proxy, FILE *req_file, FILE *reply_file, std::vector<std::string> args, std::string req);
 
   static vp::io_req_status_e req(void *__this, vp::io_req *req);
 
@@ -184,7 +185,8 @@ vp::io_req_status_e router::req(void *__this, vp::io_req *req)
     MapEntry *entry = _this->topMapEntry;
     bool isRead = !req->get_is_write();
 
-    _this->trace.msg(vp::trace::LEVEL_TRACE, "Received IO req (offset: 0x%llx, size: 0x%llx, isRead: %d)\n", offset, size, isRead);
+    _this->trace.msg(vp::trace::LEVEL_TRACE, "Received IO req (offset: 0x%llx, size: 0x%llx, isRead: %d, bandwidth: %d)\n",
+        offset, size, isRead, _this->bandwidth);
 
     if (entry)
     {
@@ -219,33 +221,42 @@ vp::io_req_status_e router::req(void *__this, vp::io_req *req)
       _this->trace.msg(vp::trace::LEVEL_TRACE, "Routing to entry (target: %s)\n", entry->target_name.c_str());
     }
     
-    if (0) { //_this->bandwidth != 0 and !req->is_debug()) {
-      
-  #if 0
-    // Compute the duration from the specified bandwidth
-    // Don't forget to compare to the already computed duration, as there might be a slower router
-    // on the path
-      req->set_duration((float)size / _this->bandwidth);
+    if (!req->is_debug())
+    {
+      if (_this->bandwidth != 0)
+      {
+        // Duration of this packet in this router according to router bandwidth
+        int64_t packet_duration = (size + _this->bandwidth - 1) / _this->bandwidth;
 
-      // This is the time when the router is available
-      int64_t routerTime = max(getCycles(), entry->nextPacketTime);
+        // Update packet duration
+        // This will update it only if it is bigger than the current duration, in case there is a
+        // slower router on the path
+        req->set_duration(packet_duration);
 
-      // This is the time when the packet is available for the next module
-      // It is either delayed by the router in case of bandwidth overflow, and in this case
-      // we only apply the router latency, or it is delayed by the latency of the components 
-      // on the path plus the router latency.
-      // Just select the maximum
-      int64_t packetTime = max(routerTime + entry->latency, getCycles() + req->getLatency() + entry->latency);
 
-      // Compute the latency to be reported from the estimated packet time at the output
-      req->setLatency(packetTime - getCycles());
+        // Update the request latency.
+        int64_t latency = req->get_latency();
+        // First check if the latency should be increased due to bandwidth limitation
+        int64_t router_latency = entry->next_packet_time - _this->get_cycles();
+        if (router_latency > latency)
+        {
+          latency = router_latency;
+        }
+        // Then apply the router latency
+        req->set_latency(latency + entry->latency);
 
-      // Update the bandwidth information
-      entry->nextPacketTime = routerTime + req->getLength();
-
-  #endif
-    } else {
-      req->inc_latency(entry->latency + _this->latency);
+        // Update the bandwidth information
+        int64_t router_time = _this->get_cycles();
+        if (router_time < entry->next_packet_time)
+        {
+          router_time = entry->next_packet_time;
+        }
+        entry->next_packet_time = router_time + packet_duration;
+      }
+      else
+      {
+        req->inc_latency(entry->latency + _this->latency);
+      }
     }
 
     int iter_size = entry == _this->defaultMapEntry ? size : entry->size - (offset - entry->base);
@@ -339,7 +350,7 @@ void router::response(void *_this, vp::io_req *req)
 }
 
 
-std::string router::handle_command(FILE *req_file, FILE *reply_file, std::vector<std::string> args)
+std::string router::handle_command(Gv_proxy *proxy, FILE *req_file, FILE *reply_file, std::vector<std::string> args, std::string cmd_req)
 {
     if (args[0] == "mem_write" or args[0] == "mem_read")
     {
@@ -371,15 +382,10 @@ std::string router::handle_command(FILE *req_file, FILE *reply_file, std::vector
 
         if (!is_write)
         {
-            fprintf(reply_file, "router %p read\n", this);
-            int write_size = fwrite(buffer, 1, size, reply_file);
-            if (write_size != size)
-            {
-                error = 1;
-            }
+            error = proxy->send_payload(reply_file, cmd_req, buffer, size);
         }
 
-        delete buffer;
+        delete[] buffer;
 
         return "err=" + std::to_string(error);
     }

@@ -375,7 +375,7 @@ void Dco::check_state()
 
         this->dco_frequency = this->get_dco_frequency(code, 0);
 
-        this->trace.msg(vp::trace::LEVEL_DEBUG, "Setting new DCO frequency (input_code: 0x%x, frequency: %d Hz)\n", code, this->dco_frequency);
+        this->trace.msg(vp::trace::LEVEL_TRACE, "Setting new DCO frequency (input_code: 0x%x, frequency: %d Hz)\n", code, this->dco_frequency);
 
         this->top->set_frequency(this->id, this->dco_frequency, this->is_open_loop || this->is_locked);
     }
@@ -403,12 +403,17 @@ void Fll::set_frequency(int dco, int dco_frequency, bool is_locked)
         this->out_clock0_itf.set_frequency(frequency);
     }
 
-    if (this->regmap.ccr2.clk1_sel_get() == dco + 1)
     {
-        int div = this->regmap.ccr1.clk1_div_get();
-        int frequency = is_locked || !this->regmap.ccr2.ckg0_get() ? dco_frequency / (2 * (div == 0 ? 1 : div)) : 0;
-        this->get_trace()->msg(vp::trace::LEVEL_DEBUG, "Setting new out clock frequency (clock: %d, frequency: %d Hz)\n", 1, frequency);
-        this->out_clock1_itf.set_frequency(frequency);
+        int clk_sel = this->regmap.ccr2.clk1_sel_get();
+        if (clk_sel >= 2) clk_sel = 2;
+
+        if (clk_sel == dco + 1)
+        {
+            int div = this->regmap.ccr1.clk1_div_get();
+            int frequency = is_locked || !this->regmap.ccr2.ckg0_get() ? dco_frequency / (2 * (div == 0 ? 1 : div)) : 0;
+            this->get_trace()->msg(vp::trace::LEVEL_DEBUG, "Setting new out clock frequency (clock: %d, frequency: %d Hz)\n", 1, frequency);
+            this->out_clock1_itf.set_frequency(frequency);
+        }
     }
 
     if (this->regmap.ccr2.clk2_sel_get() == dco + 1)
@@ -419,12 +424,17 @@ void Fll::set_frequency(int dco, int dco_frequency, bool is_locked)
         this->out_clock2_itf.set_frequency(frequency);
     }
 
-    if (this->regmap.ccr2.clk3_sel_get() == dco + 1)
     {
-        int div = this->regmap.ccr1.clk3_div_get();
-        int frequency = is_locked || !this->regmap.ccr2.ckg0_get() ? dco_frequency / (2 * (div == 0 ? 1 : div)) : 0;
-        this->get_trace()->msg(vp::trace::LEVEL_DEBUG, "Setting new out clock frequency (clock: %d, frequency: %d Hz)\n", 3, frequency);
-        this->out_clock3_itf.set_frequency(frequency);
+        int clk_sel = this->regmap.ccr2.clk3_sel_get();
+        if (clk_sel >= 4) clk_sel = 4;
+
+        if (clk_sel == dco + 1)
+        {
+            int div = this->regmap.ccr1.clk3_div_get();
+            int frequency = is_locked || !this->regmap.ccr2.ckg0_get() ? dco_frequency / (2 * (div == 0 ? 1 : div)) : 0;
+            this->get_trace()->msg(vp::trace::LEVEL_DEBUG, "Setting new out clock frequency (clock: %d, frequency: %d Hz)\n", 3, frequency);
+            this->out_clock3_itf.set_frequency(frequency);
+        }
     }
 }
 

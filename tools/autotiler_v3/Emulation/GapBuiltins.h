@@ -103,6 +103,18 @@ static inline unsigned int ExtInsMaskSafe(unsigned int Size, unsigned int Offset
 #define gap_mul64ush(x, y)		__builtin_pulp_mul64hus((x), (y))
 
 /* Vectorial product and sum of products */
+#if defined(__VEGA__)
+#define gap_dotp2(x, y)             (__builtin_pulp_machhs((int)(x), (int)(y), __builtin_pulp_muls((int)(x),(int)(y))))
+#define gap_sumdotp2(x, y, Acc)     (__builtin_pulp_macs((int)(x), (int)(y), __builtin_pulp_machhs((int)(x),(int)(y),(Acc))))
+
+#define gap_dotpu2(x, y)            (__builtin_pulp_machhu((int)(x),(int)(y), __builtin_pulp_mulu((int)(x), (int)(y)))) 
+#define gap_sumdotpu2(x, y, Acc)    (__builtin_pulp_macu((int)(x), (int)(y), __builtin_pulp_machhu((int)(x),(int)(y),(Acc))))
+
+#define gap_cplxmuls(x, y)		__builtin_pulp_cplxmuls2((x), (y))
+#define gap_cplxmulsdiv2(x, y)		__builtin_pulp_cplxmuls2div2((x), (y))
+#define gap_cplxmulsdiv4(x, y)		__builtin_pulp_cplxmuls2div4((x), (y))
+#define gap_cplxmulsdiv8(x, y)		__builtin_pulp_cplxmuls2div8((x), (y))
+#else
 #define gap_dotp2(x, y)     		__builtin_pulp_dotsp2((x), (y))
 #define gap_dotpu2(x, y)     		__builtin_pulp_dotup2((x), (y))
 #define gap_dotpus2(x, y)    		__builtin_pulp_dotusp2((x), (y))
@@ -110,6 +122,7 @@ static inline unsigned int ExtInsMaskSafe(unsigned int Size, unsigned int Offset
 #define gap_sumdotp2(x, y, z)		__builtin_pulp_sdotsp2((x), (y), (z))
 #define gap_sumdotpu2(x, y, z)		__builtin_pulp_sdotup2((x), (y), (z))
 #define gap_sumdotpus2(x, y, z)	__builtin_pulp_sdotusp2((x), (y), (z))
+#endif
 
 #define gap_dotp4(x, y)     		__builtin_pulp_dotsp4((x), (y))
 #define gap_dotpu4(x, y)     		__builtin_pulp_dotup4((x), (y))
@@ -121,11 +134,11 @@ static inline unsigned int ExtInsMaskSafe(unsigned int Size, unsigned int Offset
 
 
 /* Complex Multiplication, Q15x15 into Q15, with optional post scaling by 1 or 2 */
-#if defined (__gap8__)
+#if defined (__GAP8__)
 #define gap_cplxmuls(x, y)		__builtin_pulp_cplxmuls((x), (y))
 #define gap_cplxmulsdiv2(x, y)		__builtin_pulp_cplxmulsdiv2((x), (y))
 #define gap_cplxmulsdiv4(x, y)		__builtin_pulp_cplxmulsdiv4((x), (y))
-#elif defined (__gap9__)
+#elif defined (__GAP9__)
 #define gap_cplxmuls(x, y)		__builtin_pulp_cplxmuls2((x), (y))
 #define gap_cplxmulsdiv2(x, y)		__builtin_pulp_cplxmuls2div2((x), (y))
 #define gap_cplxmulsdiv4(x, y)		__builtin_pulp_cplxmuls2div4((x), (y))
@@ -216,6 +229,16 @@ static inline unsigned int ExtInsMaskSafe(unsigned int Size, unsigned int Offset
 #define gap_normu_reg(x, scale)			__builtin_pulp_adduN_r((x), 0, (scale))
 #define gap_norm(x, scale)			__builtin_pulp_addN((x), 0, (scale))
 #define gap_norm_reg(x, scale)			__builtin_pulp_addN_r((x), 0, (scale))
+
+/* Floating point */
+#define gap_f32min(a,b)				__builtin_pulp_f32min((a), (b))
+#define gap_f32max(a,b)				__builtin_pulp_f32max((a), (b))
+#define gap_f32sqrt(a)				__builtin_pulp_f32sqrt((a))
+#define gap_f32abs(a)				__builtin_pulp_f32abs((a))
+#define gap_f32rmm(a)				__builtin_pulp_rintsf2((a))
+#define gap_f32rdn(a)				__builtin_pulp_rdownsf2((a))
+#define gap_f32rup(a)				__builtin_pulp_rupsf2((a))
+
 
 #else
 /* Emulation */
@@ -438,6 +461,17 @@ static int _VitT0_Flag, _VitT1_Flag;
 #define gap_normu_reg(x, scale)			((unsigned int)(x)>>(scale))
 #define gap_norm(x, scale)			((int)(x)>>(scale))
 #define gap_norm_reg(x, scale)			((int)(x)>>(scale))
+
+/* Floating point */
+#include <math.h>
+#define gap_f32min(a,b)		fminf((a), (b))
+#define gap_f32max(a,b)		fmaxf((a), (b))
+#define gap_f32sqrt(a)		sqrtf((a))
+#define gap_f32abs(a)		fabsf((a))
+#define gap_f32rmm(a)		(((a)>=0)?((int)((a)+0.5f)):(-((int)(-(a)+0.5f))))
+#define gap_f32rdn(a)		floorf((a))
+#define gap_f32rup(a)		ceilf((a))
+
 
 #endif
 

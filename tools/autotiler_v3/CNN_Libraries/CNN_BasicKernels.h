@@ -20,8 +20,10 @@
 #define __CNN_BASIC_KERNELS_H__
 #include "Gap.h"
 #include "CNN_Defines.h"
-#include "CNN_CopyBasicKernels.h"
+#include "CNN_Copy.h"
 #include "../CNN_Libraries_SQ8/CNN_AT_Misc.h"
+#include "../CNN_Libraries/CNN_Copy.h"
+
 
 #define MAXDPPREC
 #ifdef MAXDPPREC
@@ -30,7 +32,10 @@
 #define DP_fps_T short int
 #endif
 
+#ifndef Prec
 #define Prec 	(10)
+#endif
+
 /******************************************************************************************************************************/
 /******************* Autotiler Internal calls *********************************************************************************/
 /******************************************************************************************************************************/
@@ -1306,7 +1311,7 @@ extern void KerReLU_fps(KerReLUPool_fps_T *Arg);
 /******************************************************************************************************************************/
 
 #define LEAK_CONSTANT_FORMAT    12
-#define LEAK_CONSTANT   FP2FIX(0.1, LEAK_CONSTANT_FORMAT)
+#define LEAK_CONSTANT_FIX   FP2FIX(0.1, LEAK_CONSTANT_FORMAT)
 
 /* Input is Double precision on 32 bits Qx.2N, Output is Single precision on 16 bits Qx.N, input and output are disjoints */
 extern void KerDP_fp(KerDP_fp_T *Arg);
@@ -1336,12 +1341,18 @@ extern void KerDP_hsigmoid_fp(KerDP_fp_T *Arg);
 /* Input is Double precision on 32 bits Qx.2N, Output is Single precision on 16 bits Q15, input and output are disjoints
    out is Sigmoid(x) */
 extern void KerDP_sigmoid_fp(KerDP_fp_T *Arg);
+/* Input is Double precision on 32 bits Qx.2N, Output is Single precision on 16 bits Q15, input and output are disjoints
+   out is tanh(x) */
+extern void KerDP_tanh_fp(KerDP_fp_T *Arg);
 /* Input is Double precision on 32 bits Qx.2N, Output is Single precision on 16 bits Qx.N, input and output point to the same location,
    out is Max(0, Min(1, (x+1)/2)) */
 extern void KerDP_IO_hsigmoid_fp(KerDP_fp_T *Arg);
 /* Input is Double precision on 32 bits Qx.2N, Output is Single precision on 16 bits Q15, input and output point to the same location,
    out is Sigmoid(x) */
 extern void KerDP_IO_sigmoid_fp(KerDP_fp_T *Arg);
+/* Input is Double precision on 32 bits Qx.2N, Output is Single precision on 16 bits Q15, input and output point to the same location,
+   out is tanh(x) */
+extern void KerDP_IO_tanh_fp(KerDP_fp_T *Arg);
 /* Input is Double precision on 32 bits Qx.2N, Output is Single precision on 16 bits Qx.N, input and output are disjoints
    out is clip((x<0)?(x*0.1):x, 15) */
 extern void KerDP_leakyrelu_fp(KerDP_fp_T *Arg);
@@ -1377,12 +1388,18 @@ extern void KerDP_hsigmoid_fps(KerDP_fps_T *Arg);
 /* Input is Double precision on 16 or 32 bits Qx.2N, Output is Single precision on 8 bits Q7, input and output are disjoints
    out is Sigmoid(x) */
 extern void KerDP_sigmoid_fps(KerDP_fps_T *Arg);
+/* Input is Double precision on 16 or 32 bits Qx.2N, Output is Single precision on 8 bits Q7, input and output are disjoints
+   out is tanh(x) */
+extern void KerDP_tanh_fps(KerDP_fps_T *Arg);
 /* Input is Double precision on 16 or 32 bits Qx.2N, Output is Single precision on 8 bits Qx.N, input and output point to the same location,
    out is Max(0, Min(1, (x+1)/2)) */
 extern void KerDP_IO_hsigmoid_fps(KerDP_fps_T *Arg);
 /* Input is Double precision on 16 or 32 bits Qx.2N, Output is Single precision on 8 bits Q7, input and output point to the same location,
    out is Sigmoid(x) */
 extern void KerDP_IO_sigmoid_fps(KerDP_fps_T *Arg);
+/* Input is Double precision on 16 or 32 bits Qx.2N, Output is Single precision on 8 bits Q7, input and output point to the same location,
+   out is Tanh(x) */
+extern void KerDP_IO_tanh_fps(KerDP_fps_T *Arg);
 
 /* Input is Double precision on 16 or 32 bits Qx.2N, Output is Single precision on 8 bits Qx.N, input and output are disjoints
    out is clip((x<0)?(x*0.1):x, 7) */
@@ -1513,6 +1530,8 @@ extern void KerParMatMulLeakyrelu_NoBias_fp(KerMatMul_fp_T *Arg);
 extern void KerParMatMulLeakyreluSxSy_NoBias_fp(KerMatMul_fp_T *Arg);
 
 extern void KerParMatMul_fpd_fp(KerMatMul_fpd_fp_T *Arg);
+extern void KerParMatMulTransposed_fpd_fp(KerMatMul_fpd_fp_T *Arg);
+extern void KerParMatMulTransposedNoBias_fp(KerMatMul_fpd_fp_T *Arg);
 
 extern void KerParMatMulSxSy_fpd_fp(KerMatMul_fpd_fp_T *Arg);
 

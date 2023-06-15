@@ -17,6 +17,7 @@
 import socket
 import threading
 import socket
+import os
 
 
 
@@ -25,11 +26,9 @@ class Proxy(object):
     """
     A class used to control GVSOC through the socket proxy
 
-    Attributes
-    ----------
-    host : str
+    :param host: str,
         a string giving the hostname where the proxy is running
-    port : int
+    :param port: int,
         the port where to connect
     """
 
@@ -40,8 +39,12 @@ class Proxy(object):
             self.socket = socket
             self.lock = threading.Lock()
             self.condition = threading.Condition(self.lock)
-            self.replies = []
+            self.replies = {}
             self.matches = {}
+            self.payloads = {}
+            self.running = False
+            self.timestamp = 0
+            self.exit_callback = None
 
         def run(self):
             while True:
@@ -55,46 +58,201 @@ class Proxy(object):
                 except:
                     return
 
-                callback = self.matches.get(reply)
-                if callback is not None:
-                    callback[0](*callback[1], **callback[2])
-                else:
-                    self.lock.acquire()
-                    self.replies.append(reply)
-                    self.condition.notify()
-                    self.lock.release()
+                req = None
+                is_stop = None
+                is_run = None
+                msg = ""
+                err = None
+                err_msg = None
 
+                for arg in reply.split(';'):
+                    name, value = arg.split('=', 1)
+                    if name == 'req':
+                        req = int(value)
+                    elif name == 'exit':
+                        self.lock.acquire()
+                        if self.exit_callback is not None:
+                            self.lock.release()
+                            self.exit_callback[0](int(value), *self.exit_callback[1], **self.exit_callback[2])
+                        else:
+                            self.lock.release()
+                            os._exit(int(value))
+                            exit(int(value))
+                    elif name == 'msg':
+                        msg = value
+                        if msg.find('stopped') == 0:
+                            is_stop = int(value.split('=')[1])
+                        elif msg.find('running') == 0:
+                            is_run = int(value.split('=')[1])
 
-        def wait_reply(self):
+                    elif name == 'err':
+                        err = value
+
+                    elif name == 'err_msg':
+                        err_msg = value
+
+                    elif name == 'payload':
+                        callback = self.matches.get('%s' % req)
+                        if callback is not None:
+                            callback[0](*callback[1], **callback[2])
+
+                        else:
+
+                            payload = bytearray()
+                            size = int(value)
+                            while len(payload) < size:
+                                response = self.socket.recv(size - len(payload))
+                                payload += response
+
+                            self.lock.acquire()
+                            self.payloads[req] = payload
+                            self.condition.notify_all()
+                            self.lock.release()
+
+                if req is None:
+                    raise RuntimeError('Unknown reply: ' + req)
+
+                self.lock.acquire()
+
+                if is_stop is not None:
+                    self.timestamp = is_stop
+                    self.running = False
+                elif is_run is not None:
+                    self.running = True
+
+                self.replies[req] = msg
+                self.condition.notify_all()
+                self.lock.release()
+
+        def _get_payload(self, req):
             self.lock.acquire()
-            while len(self.replies) == 0:
+            while self.payloads.get(req) is None:
                 self.condition.wait()
-            reply = self.replies.pop(0)
+            payload = self.payloads[req]
+            del self.payloads[req]
+            self.lock.release()
+
+            return payload
+
+
+
+        def wait_reply(self, req):
+
+            self.lock.acquire()
+            while self.replies.get(req) is None:
+                self.condition.wait()
+            reply = self.replies[req]
+            del self.replies[req]
 
             self.lock.release()
 
             return reply
 
-        def register_callback(self, match, callback, *kargs, **kwargs):
-            self.matches[match] = callback, kargs, kwargs
+        def wait_stopped(self, timestamp=None):
+            self.lock.acquire()
+            while self.running or (timestamp is not None and self.timestamp < timestamp):
+                self.condition.wait()
+            self.lock.release()
 
-        def unregister_callback(self, match):
+        def wait_timestamp(self, timestamp):
+            self.lock.acquire()
+            while self.timestamp < timestamp:
+                self.condition.wait()
+            self.lock.release()
+
+        def wait_running(self):
+            self.lock.acquire()
+            while not self.running:
+                self.condition.wait()
+            self.lock.release()
+
+
+        def register_callback(self, req, callback, *kargs, **kwargs):
+            match = '%s' % req
+            self.lock.acquire()
+            self.matches[match] = callback, kargs, kwargs
+            self.lock.release()
+
+        def unregister_callback(self, req):
+            match = '%s' % req
+            self.lock.acquire()
             self.matches[match] = None
+            self.lock.release()
+
+        def handle_err(self, error, error_str=None):
+            if error != 0:
+                if error_str is None:
+                    raise RuntimeError("Proxy command failed with status %s" % error)
+                else:
+                    raise RuntimeError("Proxy command failed with message: %s" % error_str)
+
+        def register_exit_callback(self, callback, *kargs, **kwargs):
+            self.lock.acquire()
+            self.exit_callback = [ callback, kargs, kwargs ]
+            self.lock.release()
 
 
     def __init__(self, host: str = 'localhost', port: int = 42951):
+        self.req_id = 0
+
+        self.lock = threading.Lock()
+
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((host, port))
 
         self.reader = self._Socket_proxy_reader_thread(self.socket)
         self.reader.start()
 
+    def _get_req(self):
+        self.lock.acquire()
+        req = self.req_id
+        self.req_id += 1
+        self.lock.release()
+
+        return req
+
+    def _send_cmd(self, cmd, wait_reply=True, keep_lock=False):
+        self.lock.acquire()
+        req = self.req_id
+        self.req_id += 1
+        self.socket.send(('req=%d;cmd=%s\n' % (req, cmd)).encode('ascii'))
+
+        if not keep_lock:
+            self.lock.release()
+
+        if wait_reply:
+            return self.reader.wait_reply(req)
+        else:
+            return req
+
+    def _unlock_cmd(self):
+        self.lock.release()
+
+    def wait_stop(self):
+        """Wait until execution stops.
+
+        This will block the caller until gvsoc stops execution.
+
+        """
+        self.reader.wait_stopped()
+
+    def wait_running(self):
+        """Wait until GVSOC is running.
+
+        This will block the caller until gvsoc starts execution.
+
+        """
+        self.reader.wait_running()
+
+    def stop(self):
+        """Stop execution.
+        """
+        self._send_cmd('stop')
 
     def close(self):
         """Close the proxy.
 
         This will free resources and close threads so that simulation can properly exit.
-
         """
         self.socket.shutdown(socket.SHUT_WR)
         self.socket.close()
@@ -104,154 +262,100 @@ class Proxy(object):
     def trace_add(self, trace: str):
         """Enable a trace.
 
-        Parameters
-        ----------
-        trace : str
-            A regular expression used to enable traces
+        :param trace: A regular expression used to enable traces
         """
 
-        self.socket.send(('trace add %s\n' % trace).encode('ascii'))
+        self._send_cmd('trace add %s' % trace)
 
     def trace_remove(self, trace: str):
         """Disable a trace.
 
-        Parameters
-        ----------
-        trace : str
-            A regular expression used to disable traces
+        :param trace: A regular expression used to disable traces
         """
 
-        self.socket.send(('trace remove %s\n' % trace).encode('ascii'))
+        self._send_cmd('trace remove %s' % trace)
 
     def trace_level(self, level: str):
         """Changes the trace level.
 
-        Parameters
-        ----------
-        level : str
-            The trace level, can be "error", "warning", "info", "debug" or "trace"
+        :param level: The trace level, can be "error", "warning", "info", "debug" or "trace"
         """
 
-        self.socket.send(('trace level %s\n' % level).encode('ascii'))
+        self._send_cmd('trace level %s' % level)
 
     def event_add(self, event: str):
         """Enable an event.
 
-        Parameters
-        ----------
-        event : str
-            A regular expression used to enable events
+        :param event: A regular expression used to enable events
         """
 
-        self.socket.send(('event add %s\n' % event).encode('ascii'))
+        self._send_cmd('event add %s' % event)
 
     def event_remove(self, event: str):
         """Disable a trace.
 
-        Parameters
-        ----------
-        event : str
-            A regular expression used to enable events
+        :param event: A regular expression used to enable events
         """
 
-        self.socket.send(('event remove %s\n' % event).encode('ascii'))
+        self._send_cmd('event remove %s' % event)
 
     def run(self, duration: int = None):
         """Starts execution.
 
-        Parameters
-        ----------
-        duration : int, optional
-            Specify the duration of the execution in picoseconds (will execute forever by default)
+        :param duration: Specify the duration of the execution in picoseconds (will execute forever by default)
         """
 
         if duration is not None:
-            self.socket.send(('step %d\n' % duration).encode('ascii'))
+            timestamp = self.reader.timestamp + duration
+            timestamp = self._send_cmd('step %d' % (duration))
+            self.reader.wait_timestamp(int(timestamp))
         else:
-            self.socket.send('run\n'.encode('ascii'))
+            self._send_cmd('run')
 
-        self.reader.wait_reply()
+
+
 
     def quit(self, status: int = 0):
         """Exit simulation.
 
-        Parameters
-        ----------
-        duration : int, optional
-            Specify the status value.
+        :param status: Specify the status value.
         """
 
-        self.socket.send(('quit %d\n' % status).encode('ascii'))
+        self._send_cmd('quit %d' % status)
 
-
-    def _handle_err(self, error, error_str=None):
-        if error != 0:
-            if error_str is None:
-                raise RuntimeError("Proxy command failed with status %s" % error)
-            else:
-                raise RuntimeError("Proxy command failed with message: %s" % error_str)
-
-
-    def _get_retval(self):
-        result = self.reader.wait_reply()
-        error = 0
-        error_str = None
-        for arg in result.split(';'):
-            name, value = arg.split('=')
-            if name == 'err':
-                error = int(value)
-            elif name == 'msg':
-                error_str = value
-
-        self._handle_err(error, error_str)
-
-        if error != 0:
-            if error_str is None:
-                raise RuntimeError("Proxy command failed with status %s" % error)
-            else:
-                raise RuntimeError("Proxy command failed with message: %s" % error_str)
 
 
     def _get_component(self, path):
-            self.socket.send(('get_component %s\n' % path).encode('utf-8'))
-            result = self.reader.wait_reply()
+            result = self._send_cmd('get_component %s' % path)
+
             return result.replace('\n', '')
+
+
+    def register_exit_callback(self, callback, *kargs, **kwargs):
+        """Register exit callback
+
+        The callback is called when GVSOC exits. If no callback is registered,
+        os._exit is called when GVSOC exits.
+
+        :param callback: The function to be called when GVSOC exits
+        :param kargs: Arguments propagated to the callback
+        :param kwargs: Arguments propagated to the callback
+        """
+        self.reader.register_exit_callback(callback, *kargs, **kwargs)
 
 
 class Router(object):
     """
     A class used to inject memory accesses into a router
 
-    Attributes
-    ----------
-    proxy : Proxy
-        The proxy object. This class will use it to send command to GVSOC through the proxy connection.
-    path : string, optional
-        The path to the router in the architecture.
+    :param proxy: The proxy object. This class will use it to send command to GVSOC through the proxy connection.
+    :param path: The path to the router in the architecture.
     """
 
-    def __init__(self, proxy: Proxy, path: str = '/sys/board/chip/soc/axi_ico'):
+    def __init__(self, proxy: Proxy, path: str = '**/chip/soc/axi_ico'):
         self.proxy = proxy
-        self.lock = threading.Lock()
-        self.condition = threading.Condition(self.lock)
-        self.pending_read_bytes = []
         self.component = proxy._get_component(path)
-        self.proxy.reader.register_callback('router %s read\n' % self.component, self.__handle_read)
 
-
-    def __handle_read(self):
-
-        self.lock.acquire()
-
-        size = self.read_size
-        reply = []
-        while size > 0:
-            reply += self.proxy.socket.recv(size)
-            size = self.read_size - len(reply)
-        
-        self.pending_read_bytes = reply
-        self.condition.notify()
-        self.lock.release()
 
 
     def mem_write(self, addr: int, size: int, values: bytes):
@@ -260,26 +364,22 @@ class Router(object):
         The access is generated by the router where this class is connected and is
         injected as a debug request to not disturb the timing.
 
-        Parameters
-        ----------
-        addr : int
-            The address of the access.
-        size : int
-            The size of the access in bytes.
-        values : bytes
-            The sequence of bytes to be written, in little endian byte ordering.
+        :param addr: The address of the access.
+        :param size: The size of the access in bytes.
+        :param values: The sequence of bytes to be written, in little endian byte ordering.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
-        cmd = 'component %s mem_write 0x%x 0x%x\n' % (self.component, addr, size)
+        cmd = 'component %s mem_write 0x%x 0x%x' % (self.component, addr, size)
 
-        self.proxy.socket.send(cmd.encode('ascii'))
+        # Since we need to send a command and right after the data,
+        # we have to keep the command queue locked to avoid mixing our data
+        # with another command
+        req = self.proxy._send_cmd(cmd, keep_lock=True, wait_reply=False)
         self.proxy.socket.send(values)
+        self.proxy._unlock_cmd()
 
-        self.proxy._get_retval()
+        self.proxy.reader.wait_reply(req)
 
     def mem_read(self, addr: int, size: int) -> bytes:
         """Inject a memory read.
@@ -287,39 +387,26 @@ class Router(object):
         The access is generated by the router where this class is connected and is
         injected as a debug request to not disturb the timing.
 
-        Parameters
-        ----------
-        addr : int
-            The address of the access.
-        size : int
-            The size of the access in bytes.
+        :param addr: int, The address of the access.
+        :param size: int, The size of the access in bytes.
 
-        Returns
-        -------
-        bytes
-            The sequence of bytes read, in little endian byte ordering.
+        :return: bytes, The sequence of bytes read, in little endian byte ordering.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
 
+        # Since we need to send a command and right after we receive the data,
+        # we have to keep the command queue locked to avoid mixing our data
+        # with another command
         self.read_size = size
-        cmd = 'component %s mem_read 0x%x 0x%x\n' % (self.component, addr, size)
-        self.proxy.socket.send(cmd.encode('ascii'))
+        cmd = 'component %s mem_read 0x%x 0x%x' % (self.component, addr, size)
+        req = self.proxy._send_cmd(cmd, keep_lock=True, wait_reply=False)
 
-        self.lock.acquire()
-        
-        while len(self.pending_read_bytes) < size:
-            self.condition.wait()
+        reply = self.proxy.reader._get_payload(req)
 
-        reply = self.pending_read_bytes
-        self.pending_read_bytes = []
+        self.proxy._unlock_cmd()
 
-        self.lock.release()
-
-        self.proxy._get_retval()
+        self.proxy.reader.wait_reply(req)
 
         return reply
 
@@ -330,19 +417,11 @@ class Router(object):
         The access is generated by the router where this class is connected and is
         injected as a debug request to not disturb the timing.
 
-        Parameters
-        ----------
-        addr : int
-            The address of the access.
-        size : int
-            The size of the access in bytes.
-        value : int
-            The integer to be written.
+        :param addr: int, The address of the access.
+        :param size: int, The size of the access in bytes.
+        :param value: int, The integer to be written.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
         return self.mem_write(addr, size, value.to_bytes(size, byteorder='little'))
 
@@ -352,22 +431,12 @@ class Router(object):
         The access is generated by the router where this class is connected and is
         injected as a debug request to not disturb the timing.
 
-        Parameters
-        ----------
-        addr : int
-            The address of the access.
-        size : int
-            The size of the access in bytes.
+        :param addr: int, The address of the access.
+        :param size: int, The size of the access in bytes.
 
-        Returns
-        -------
-        int
-            The integer read.
+        :return: int, The integer read.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
         values = self.mem_read(addr, size)
         return int.from_bytes(values, byteorder='little')
@@ -380,15 +449,11 @@ class Testbench(object):
 
     This class can be instantiated to get access to the testbench.
 
-    Attributes
-    ----------
-    proxy : Proxy
-        The proxy object. This class will use it to send command to GVSOC through the proxy connection.
-    path : string, optional
-        The path to the testbench in the architecture.
+    :param proxy: Proxy, The proxy object. This class will use it to send command to GVSOC through the proxy connection.
+    :param path: string, optional, The path to the testbench in the architecture.
     """
 
-    def __init__(self, proxy: Proxy, path: str = '/sys/board/testbench/testbench'):
+    def __init__(self, proxy: Proxy, path: str = '**/testbench/testbench'):
         self.proxy = proxy
         self.component = proxy._get_component(path)
 
@@ -396,16 +461,11 @@ class Testbench(object):
     def i2s_get(self, id: int = 0):
         """Open an SAI.
 
-        Opena an SAI and return an object which can be used to interact with it.
+        Open an SAI and return an object which can be used to interact with it.
 
-        Parameters
-        ----------
-        id : int, optional
-            The SAI identifier.
+        :param id: int, optional, The SAI identifier.
 
-        Returns:
-        Testbench_i2s
-            An object which can be used to access the specified SAI.
+        :return: Testbench_i2s, An object which can be used to access the specified SAI.
         """
         return Testbench_i2s(self.proxy, self.component, id)
 
@@ -413,16 +473,11 @@ class Testbench(object):
     def uart_get(self, id: int = 0):
         """Open a uart interface.
 
-        Opena a uart interface and return an object which can be used to interact with it.
+        Open a uart interface and return an object which can be used to interact with it.
 
-        Parameters
-        ----------
-        id : int, optional
-            The uart interface identifier.
+        :param id: int, optional, The uart interface identifier.
 
-        Returns:
-        Testbench_uart
-            An object which can be used to access the specified uart interface.
+        :return: Testbench_uart, An object which can be used to access the specified uart interface.
         """
         return Testbench_uart(self.proxy, self.component, id)
 
@@ -432,14 +487,9 @@ class Testbench_uart(object):
 
     It can used to interact with the uart interface, like injecting streams.
 
-    Attributes
-    ----------
-        proxy : Proxy
-            The proxy object. This class will use it to send command to GVSOC through the proxy connection.
-        testbench : int
-            The testbench object.
-        id : int, optional
-            The identifier of the uart interface.
+    :param proxy: Proxy, The proxy object. This class will use it to send command to GVSOC through the proxy connection.
+    :param testbench: int, The testbench object.
+    :param id: int, optional, The identifier of the uart interface.
     """
 
     def __init__(self, proxy: Proxy, testbench: Testbench, id=0):
@@ -449,35 +499,23 @@ class Testbench_uart(object):
         self.callback = None
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
-        self.pending_rx_bytes = []
+        self.pending_rx_bytes = bytearray()
+        self.req = None
 
     def open(self, baudrate: int, word_size: int=8, stop_bits: int=1, parity_mode: bool=False, ctrl_flow: bool=True,
             is_usart: bool=False, usart_polarity: int=0, usart_phase: int=0):
         """Open and configure a uart interface.
 
-        Parameters
-        ----------
-        baudrate : int
-            Specify the uart baudrate in bps
-        word_size : int, optional
-            Specify the size in bits of the uart bytes.
-        stop_bits : int, optional
-            Specify the number of stop bits.
-        parity_mode : bool, optional
-            True if parity is enabled.
-        ctrl_flow : bool, optional
-            True if control flow is enabled.
-        is_usart : bool, optional
-            True if uart is in usart mode.
-        usart_polarity: int, optional
-            Usart polarity.
-        usart_phase: int, optional
-            Usart phase.
+        :param baudrate: int, Specify the uart baudrate in bps
+        :param word_size: int, optional, Specify the size in bits of the uart bytes.
+        :param stop_bits: int, optional, Specify the number of stop bits.
+        :param parity_mode: bool, optional, True if parity is enabled.
+        :param ctrl_flow: bool, optional, True if control flow is enabled.
+        :param is_usart: bool, optional, True if uart is in usart mode.
+        :param usart_polarity: int, optional, Usart polarity.
+        :param usart_phase: int, optional, Usart phase.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any invalid parameter.
+        :raises: RuntimeError, if there is any invalid parameter.
         """
 
         options = ''
@@ -491,24 +529,19 @@ class Testbench_uart(object):
         options += ' is_usart=%d' % is_usart
         options += ' usart_polarity=%d' % usart_polarity
         options += ' usart_phase=%d' % usart_phase
-        cmd = 'component %s uart setup %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s uart setup %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
     def close(self):
         """Close the uart interface.
-    
-        Raises
-        ------
-        RuntimeError
-            If there is any error while closing.
+
+        :raises: RuntimeError, if there is any error while closing.
         """
         options = ''
         options += ' itf=%d' % self.id
         options += ' enabled=0'
-        cmd = 'component %s uart setup %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s uart setup %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
     def tx(self, values: bytes):
         """Send data to the uart.
@@ -516,22 +549,20 @@ class Testbench_uart(object):
         This enqueues an array of bytes to be transmitted. If previous transfers are not finished,
         these bytes will be transfered after.
 
-        Parameters
-        ----------
-        values : bytes
-            The sequence of bytes to be sent, in little endian byte ordering.
+        :param values: bytes, The sequence of bytes to be sent, in little endian byte ordering.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
-        cmd = 'component %s uart tx %d %d\n' % (self.testbench, self.id, len(values))
+        cmd = 'component %s uart tx %d %d' % (self.testbench, self.id, len(values))
 
-        self.proxy.socket.send(cmd.encode('ascii'))
+        # Since we need to send a command and right after the data,
+        # we have to keep the command queue locked to avoid mixing our data
+        # with another command
+        req = self.proxy._send_cmd(cmd, keep_lock=True, wait_reply=False)
         self.proxy.socket.send(values)
+        self.proxy._unlock_cmd()
 
-        self.proxy._get_retval()
+        self.proxy.reader.wait_reply(req)
 
     def rx(self, size=None):
         """Read data from the uart.
@@ -539,20 +570,11 @@ class Testbench_uart(object):
         Once reception on the uart is enabled, the received bytes are pushed to a fifo. This method
         can be called to pop received bytes from the FIFO.
 
-        Parameters
-        ----------
-        size : int
-            The number of bytes to be read. If it is None, it returns the bytes which has already been received.
+        :param size: int, The number of bytes to be read. If it is None, it returns the bytes which has already been received.
 
-        Returns
-        -------
-        bytes
-            The sequence of bytes received, in little endian byte ordering.
+        :return: bytes, The sequence of bytes received, in little endian byte ordering.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, If the access generates an error in the architecture.
         """
         self.lock.acquire()
 
@@ -576,29 +598,22 @@ class Testbench_uart(object):
         Any byte received from the uart either triggers the callback execution if it has been registered,
         or is pushed to a FIFO which can read.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
-        self.proxy.reader.register_callback('uart rx %d\n' % self.id, self.__handle_rx)
-        cmd = 'component %s uart rx %d 1\n' % (self.testbench, self.id)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        self.req = self.proxy._get_req()
+        self.proxy.reader.register_callback(self.req, self.__handle_rx)
+        cmd = 'component %s uart rx %d 1 %d' % (self.testbench, self.id, self.req)
+        self.proxy._send_cmd(cmd)
 
 
     def rx_disable(self):
-        """Dsiable receiving bytes from the uart.
+        """Disable receiving bytes from the uart.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
-        self.proxy.reader.unregister_callback('uart rx %d\n' % self.id)
-        cmd = 'component %s uart rx %d 0\n' % (self.testbench, self.id)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        self.proxy.reader.unregister_callback(self.req)
+        cmd = 'component %s uart rx %d 0' % (self.testbench, self.id)
+        self.proxy._send_cmd(cmd)
 
 
     def __handle_rx(self):
@@ -620,23 +635,14 @@ class Testbench_uart(object):
         The callback will be called asynchronously by a different thread and so special care must be taken
         to access shared variables using locks. Also the proxy can not be used from the callback.
 
-        Parameters
-        ----------
-        callback
-            The function to be called when bytes are received from the uart. First parameters will contain
-            number of bytes and received, and second one will be the bytes received.
-        kargs, kwargs
-            Arguments propagated to the callback
+        :param callback: The function to be called when bytes are received from the uart. First parameters will contain
+                         number of bytes and received, and second one will be the bytes received.
+        :param kargs: Arguments propagated to the callback
+        :param kwargs: Arguments propagated to the callback
 
-        Returns
-        -------
-        bytes
-            The sequence of bytes received, in little endian byte ordering.
+        :return: bytes, The sequence of bytes received, in little endian byte ordering.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
         self.callback = callback, kargs, kwargs
 
@@ -647,10 +653,7 @@ class Testbench_uart(object):
         The callback previously attached won't be called anymore.
         This must be called only when uart reception is disabled.
 
-        Raises
-        ------
-        RuntimeError
-            If the access generates an error in the architecture.
+        :raises: RuntimeError, if the access generates an error in the architecture.
         """
         self.callback = None
 
@@ -660,14 +663,9 @@ class Testbench_i2s(object):
 
     It can used to interact with the SAI, like injecting streams.
 
-    Attributes
-    ----------
-        proxy : Proxy
-            The proxy object. This class will use it to send command to GVSOC through the proxy connection.
-        testbench : int
-            The testbench object.
-        id : int, optional
-            The identifier of the SAI interface.
+    :param proxy: Proxy, The proxy object. This class will use it to send command to GVSOC through the proxy connection.
+    :param testbench: int, The testbench object.
+    :param id: int, optional, The identifier of the SAI interface.
     """
 
     def __init__(self, proxy: Proxy, testbench: Testbench, id=0):
@@ -677,39 +675,34 @@ class Testbench_i2s(object):
 
     def open(self, word_size: int = 16, sampling_freq: int = -1, nb_slots: int = 1, is_pdm: bool = False,
             is_full_duplex: bool = False, is_ext_clk: bool = False, is_ext_ws: bool = False, is_sai0_clk: bool = False,
-            is_sai0_ws: bool = False, clk_polarity: int = 0, ws_polarity: int = 0):
+            is_sai0_ws: bool = False, clk_polarity: int = 0, ws_polarity: int = 0, ws_delay: int = 1):
         """Open and configure SAI.
 
-        Parameters
-        ----------
-        word_size : int, optional
-            Specify the frame word size in bits.
-        sampling_freq : int, optional
-            Specify the sampling frequency. This is used either to generate the clock when
+        :param word_size: int, optional, Specify the frame word size in bits.
+        :param sampling_freq: int, optional, Specify the sampling frequency. This is used either to generate the clock when
             it is external or to check that internally generated one is correct.
-        nb_slots : int, optional
+        :param nb_slots: int, optional,
             Number of slots in the frame.
-        is_pdm : bool, optional
+        :param is_pdm: bool, optional,
             True if the stream is a PDM stream.
-        is_full_duplex : bool, optional
+        :param is_full_duplex: bool, optional,
             True if the SAI is used in full duplex mode.
-        is_ext_clk: bool, optional
+        :param is_ext_clk: bool, optional,
             True is the clock is generated by the testbench.
-        is_ext_ws: bool, optional
+        :param is_ext_ws: bool, optional,
             True is the word strobe is generated by the testbench.
-        is_sai0_clk: bool, optional
+        :param is_sai0_clk: bool, optional,
             True is the the clock should be taken from SAI0.
-        is_sai0_ws: bool, optional
+        :param is_sai0_ws: bool, optional,
             True is the the word strobe should be taken from SAI0.
-        clk_polarity : int, optional
+        :param clk_polarity: int, optional,
             Clock polarity, definition is the same as SAI0 specifications.
-        ws_polarity : int, optional
+        :param ws_polarity: int, optional,
             Word strobe polarity, definition is the same as SAI0 specifications.
+        :param ws_delay: int, optional,
+            Word strobe delay, definition is the same as SAI0 specifications.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any invalid parameter.
+        :raises: RuntimeError, if there is any invalid parameter.
         """
 
         options = ''
@@ -726,76 +719,59 @@ class Testbench_i2s(object):
         options += ' is_sai0_ws=%d' % is_sai0_ws
         options += ' clk_polarity=%d' % clk_polarity
         options += ' ws_polarity=%d' % ws_polarity
-        cmd = 'component %s i2s setup %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        options += ' ws_delay=%d' % ws_delay
+        cmd = 'component %s i2s setup %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
     def close(self):
         """Close SAI.
-    
-        Raises
-        ------
-        RuntimeError
-            If there is any error while closing.
+
+        :raises: RuntimeError, if there is any error while closing.
         """
         options = ''
         options += ' itf=%d' % self.id
         options += ' enabled=0'
-        cmd = 'component %s i2s setup %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s i2s setup %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
     def clk_start(self):
         """Start clock.
 
         This can be used when the clock is generated by the testbench to start the generation.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any error while starting the clock.
+        :raises: RuntimeError, if there is any error while starting the clock.
         """
-        cmd = 'component %s i2s clk_start %d\n' % (self.testbench, self.id)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s i2s clk_start %d' % (self.testbench, self.id)
+        self.proxy._send_cmd(cmd)
 
     def clk_stop(self):
         """Stop clock.
 
         This can be used when the clock is generated by the testbench to stop the generation.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any error while stopping the clock.
+        :raises: RuntimeError, if there is any error while stopping the clock.
         """
-        cmd = 'component %s i2s clk_stop %d\n' % (self.testbench, self.id)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s i2s clk_stop %d' % (self.testbench, self.id)
+        self.proxy._send_cmd(cmd)
 
     def slot_open(self, slot: int = 0, is_rx: bool = True, word_size: int = 16, is_msb: bool = True,
             sign_extend: bool = False, left_align: bool = False):
         """Open and configure a slot.
 
-        Parameters
-        ----------
-        slot : int, optional
+        :param slot: int, optional,
             Slot identifier
-        is_rx : bool, optional
+        :param is_rx: bool, optional,
             True if gap receives the samples.
-        word_size : int, optional
+        :param word_size: int, optional,
             Slot width in number of bits.
-        is_msb : bool, optional
+        :param is_msb: bool, optional,
             True if the samples are received or sent with MSB first.
-        sign_extend : bool, optional
+        :param sign_extend: bool, optional,
             True if the samples are sign-extended.
-        left_align : bool, optional
+        :param left_align: bool, optional,
             True if the samples are left aligned.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any invalid parameter.
+        :raises: RuntimeError, if there is any invalid parameter.
         """
         options = ''
         options += ' itf=%d' % self.id
@@ -804,32 +780,26 @@ class Testbench_i2s(object):
         options += ' enabled=1'
         options += ' word_size=%d' % word_size
         options += ' format=%d' % (is_msb | (left_align << 1) | (sign_extend << 1))
-        cmd = 'component %s i2s slot_setup %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s i2s slot_setup %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
     def slot_close(self, slot: int = 0):
         """Close a slot.
 
-        Parameters
-        ----------
-        slot : int, optional
+        :param slot: int, optional,
             Slot identifier
 
-        Raises
-        ------
-        RuntimeError
-            If there is any invalid parameter.
+        :raises: RuntimeError, if there is any invalid parameter.
         """
         options = ''
         options += ' itf=%d' % self.id
         options += ' slot=%d' % slot
         options += ' enabled=0'
-        cmd = 'component %s i2s slot_setup %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s i2s slot_setup %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
-    def slot_rx_file_reader(self, slot: int = None, slots: list = [], filetype: str = "wav", filepath: str = None, channel: int = 0):
+    def slot_rx_file_reader(self, slot: int = None, slots: list = [], filetype: str = "wav",
+            filepath: str = None, encoding: str = "asis", channel: int = 0, width: int = 0):
         """Read a stream of samples from a file.
 
         This will open a file and stream it to the SAI so that gap receives the samples.
@@ -837,23 +807,22 @@ class Testbench_i2s(object):
         slots parameter. In multi-channel mode, the slots parameters give the list of slots associated to each channel.
         To allow empty channels, a slot of -1 can be given.
 
-        Parameters
-        ----------
-        slot : int, optional
+        :param slot: int, optional,
             Slot identifier
-        slots : list, optional
+        :param slots: list, optional,
             List of slots when using multi-channel mode. slot must be None if this one is not empty.
-        filetype : string, optional
-            Describes the type of the file, can be "wav" or "au".
-        filepath : string, optional
+        :param filetype: string, optional,
+            Describes the type of the file, can be "wav", "raw", "bin" or "au".
+        :param width: int, optional,
+            width of the samples, in case the file is in binary format
+        :param filepath: string, optional,
             Path to the file.
-        channel : int, optional
+        :param encoding: string, optional,
+            Encoding type for binary files, can be: "asis", "plusminus"
+        :param channel: int, optional,
             If the format supports it, this will get the samples from the specified channel in the input file.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any invalid parameter.
+        :raises: RuntimeError, if there is any invalid parameter.
         """
         options = ''
         options += ' itf=%d' % self.id
@@ -863,12 +832,14 @@ class Testbench_i2s(object):
             options += ' slot=%d' % slot
         options += ' filetype=%s' % filetype
         options += ' filepath=%s' % filepath
+        options += ' encoding=%s' % encoding
         options += ' channel=%d' % channel
-        cmd = 'component %s i2s slot_rx_file_reader %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        options += ' width=%d' % width
+        cmd = 'component %s i2s slot_rx_file_reader %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
-    def slot_tx_file_dumper(self, slot: int = None, slots: list = [], filetype: str = "wav", filepath: str = None, channel: int = 0):
+    def slot_tx_file_dumper(self, slot: int = None, slots: list = [], filetype: str = "wav",
+            filepath: str = None, encoding: str = "asis", channel: int = 0, width: int = 0):
         """Write a stream of samples to a file.
 
         This will open a file and write to it all the samples received from gap.
@@ -877,23 +848,22 @@ class Testbench_i2s(object):
         To allow empty channels, a slot of -1 can be given. A slot can be given several times in order to push the samples
         to several channels.
 
-        Parameters
-        ----------
-        slot : int, optional
+        :param slot: int, optional,
             Slot identifier
-        slots : list, optional
+        :param slots: list, optional,
             List of slots when using multi-channel mode. slot must be None if this one is not empty.
-        filetype : string, optional
-            Describes the type of the file, can be "wav" or "au".
-        filepath : string, optional
+        :param filetype: string, optional,
+            Describes the type of the file, can be "wav", "raw", "bin" or "au".
+        :param encoding: string, optional,
+            Encoding type for binary files, can be: "asis", "plusminus"
+        :param width: int, optional,
+            width of the samples, in case the file is in binary format
+        :param filepath: string, optional,
             Path to the file.
-        channel : int, optional
+        :param channel: int, optional,
             If the format supports it, this will dump the samples to the specified channel in the output file.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any invalid parameter.
+        :raises: RuntimeError, if there is any invalid parameter.
         """
         options = ''
         options += ' itf=%d' % self.id
@@ -903,35 +873,30 @@ class Testbench_i2s(object):
             options += ' slot=%d' % slot
         options += ' filetype=%s' % filetype
         options += ' filepath=%s' % filepath
+        options += ' encoding=%s' % encoding
         options += ' channel=%d' % channel
-        cmd = 'component %s i2s slot_tx_file_dumper %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        options += ' width=%d' % width
+        cmd = 'component %s i2s slot_tx_file_dumper %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)
 
     def slot_stop(self, slot: int = 0, stop_rx: bool = True, stop_tx: bool = True):
         """Stop a slot.
 
         This will stop the streamings (file reader or dumper) configured on the specified slot.
 
-        Parameters
-        ----------
-        slot : int, optional
+        :param slot: int, optional,
             Slot identifier
-        stop_rx : bool, optional
+        :param stop_rx: bool, optional,
             Stop the stream sent to gap.
-        stop_tx : bool, optional
+        :param stop_tx: bool, optional,
             Stop the stream received from gap.
 
-        Raises
-        ------
-        RuntimeError
-            If there is any invalid parameter.
+        :raises: RuntimeError, if there is any invalid parameter.
         """
         options = ''
         options += ' itf=%d' % self.id
         options += ' slot=%d' % slot
         options += ' stop_rx=%d' % stop_rx
         options += ' stop_tx=%d' % stop_tx
-        cmd = 'component %s i2s slot_stop %s\n' % (self.testbench, options)
-        self.proxy.socket.send(cmd.encode('ascii'))
-        self.proxy._get_retval()
+        cmd = 'component %s i2s slot_stop %s' % (self.testbench, options)
+        self.proxy._send_cmd(cmd)

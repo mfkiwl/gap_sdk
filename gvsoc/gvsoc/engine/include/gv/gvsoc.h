@@ -46,13 +46,15 @@ void *gv_create(const char *config_path, struct gv_conf *conf);
 
 void gv_start(void *instance);
 
+void gv_reset(void *instance, bool active);
+
 void gv_step(void *instance, int64_t timestamp);
 
 int64_t gv_time(void *instance);
 
 int gv_run(void *_instance);
 
-void gv_stop(void *_instance);
+void gv_stop(void *_instance, int status);
 
 void gv_destroy(void *handle);
 

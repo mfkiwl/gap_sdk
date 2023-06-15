@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 #
 # Copyright (C) 2020 GreenWaves Technologies, SAS, ETH Zurich and
 #                    University of Bologna
@@ -17,7 +15,7 @@
 # limitations under the License.
 #
 
-# 
+#
 # Authors: Germain Haugou, GreenWaves Technologies (germain.haugou@greenwaves-technologies.com)
 #
 
@@ -84,19 +82,19 @@ class R5(Instr):
                             InReg (1, Range(20, 5)),
                             ]
 
-            
+
         # int64 formats
         elif format == 'R1x64_W64':
             self.args = [   OutReg64 (0, Range(7,  5)),
                             InReg64  (0, Range(15, 5)),
                             ]
-            
+
         elif format == 'R2x64_W64':
             self.args = [   OutReg64 (0, Range(7,  5)),
                             InReg64  (0, Range(15, 5)),
                             InReg64  (1, Range(20, 5)),
                             ]
-            
+
         elif format == 'R1x64puImm_W64':
             self.args = [   OutReg64    (0, Range(7,  5)),
                             InReg64     (0, Range(15, 5)),
@@ -114,7 +112,7 @@ class R5(Instr):
                             InReg64     (0, Range(15, 5)),
                             UnsignedImm (0, Range(20, 5)),
                             ]
-            
+
         elif format == 'R1x64psImm_W32':
             self.args = [   OutReg      (0, Range(7,  5)),
                             InReg64     (0, Range(15, 5)),
@@ -131,7 +129,7 @@ class R5(Instr):
                             InReg64 (0, Range(15, 5)),
                             InReg64 (1, Range(20, 5)),
                             ]
-            
+
         elif format == 'R1x32_W64':
             self.args = [   OutReg64 (0, Range(7,  5)),
                             InReg    (0, Range(15, 5)),
@@ -156,7 +154,7 @@ class R5(Instr):
                             InReg64  (2, Range(7,  5)),
                             ]
 
-            
+
         elif format == 'BITREV':
             self.args = [   OutReg(0, Range(7,  5)),
                             InReg (0, Range(15, 5)),
@@ -561,7 +559,6 @@ class R5(Instr):
                         ]
         elif format == 'CI5':
             self.args = [   OutReg(0, Range(7, 5)),
-                            InReg(0, Range(7, 5)),
                             UnsignedImm(0, Ranges([[2, 5, 12], [12, 1, 17]]), isSigned=True),
                         ]
         elif format == 'CI6':
@@ -729,7 +726,7 @@ rv32f = IsaSubset('f', [
 
     R5('flw',       'FL', '------- ----- ----- 010 ----- 0000111', tags=["load"]),
     R5('fsw',       'FS', '------- ----- ----- 010 ----- 0100111'),
-    
+
     R5('fmadd.s',   'R4U','-----00 ----- ----- --- ----- 1000011', tags=['fmadd']),
     R5('fmsub.s',   'R4U','-----00 ----- ----- --- ----- 1000111', tags=['fmadd']),
     R5('fnmsub.s',  'R4U','-----00 ----- ----- --- ----- 1001011', tags=['fmadd']),
@@ -778,7 +775,7 @@ Xf16 = IsaSubset('f16', [
 
     R5('flh',       'FL', '------- ----- ----- 001 ----- 0000111', tags=["load"]),
     R5('fsh',       'FS', '------- ----- ----- 001 ----- 0100111'),
-    
+
     R5('fmadd.h',   'R4U','-----10 ----- ----- --- ----- 1000011', tags=['sfmadd']),
     R5('fmsub.h',   'R4U','-----10 ----- ----- --- ----- 1000111', tags=['sfmadd']),
     R5('fnmsub.h',  'R4U','-----10 ----- ----- --- ----- 1001011', tags=['sfmadd']),
@@ -826,7 +823,7 @@ Xf16 = IsaSubset('f16', [
 ])
 
 Xf16alt = IsaSubset('f16alt', [
-    
+
     R5('fmadd.ah',   'R4U','-----10 ----- ----- 101 ----- 1000011', tags=['sfmadd']),
     R5('fmsub.ah',   'R4U','-----10 ----- ----- 101 ----- 1000111', tags=['sfmadd']),
     R5('fnmsub.ah',  'R4U','-----10 ----- ----- 101 ----- 1001011', tags=['sfmadd']),
@@ -881,7 +878,7 @@ Xf8 = IsaSubset('f8', [
 
     R5('flb',       'FL', '------- ----- ----- 000 ----- 0000111', tags=["load"]),
     R5('fsb',       'FS', '------- ----- ----- 000 ----- 0100111'),
-    
+
     R5('fmadd.b',   'R4U','-----11 ----- ----- --- ----- 1000011', tags=['sfmadd']),
     R5('fmsub.b',   'R4U','-----11 ----- ----- --- ----- 1000111', tags=['sfmadd']),
     R5('fnmsub.b',  'R4U','-----11 ----- ----- --- ----- 1001011', tags=['sfmadd']),
@@ -1046,7 +1043,7 @@ Xfvec = IsaSubset('fvec', [
     R5('vfgt.h',    'R2VF', '1010101 ----- ----- 010 ----- 0110011', tags=['fother'], isa_tags=['f16vec']),
     R5('vfgt.r.h',  'R2VF', '1010101 ----- ----- 110 ----- 0110011', tags=['fother'], isa_tags=['f16vec']),
 
-    R5('vfcpka.h.s', 'RVF4','1011000 ----- ----- 010 ----- 0110011', tags=['fother'], isa_tags=['f16vec']),
+    R5('vfcpka.h.s', 'R2VF','1011000 ----- ----- 010 ----- 0110011', tags=['fother'], isa_tags=['f16vec']),
 
     # Unless RV32D supported
     R5('vfmv.x.h',   'R3F', '1001100 00000 ----- 010 ----- 0110011', tags=['fother'], isa_tags=['f16vecno32d']),
@@ -1111,7 +1108,7 @@ Xfvec = IsaSubset('fvec', [
     R5('vfgt.ah',    'R2VF', '1010101 ----- ----- 001 ----- 0110011', tags=['fother'], isa_tags=['f16altvec']),
     R5('vfgt.r.ah',  'R2VF', '1010101 ----- ----- 101 ----- 0110011', tags=['fother']),
 
-    R5('vfcpka.ah.s', 'RVF4','1011000 ----- ----- 001 ----- 0110011', tags=['fother'], isa_tags=['f16altvec']),
+    R5('vfcpka.ah.s', 'R2VF','1011000 ----- ----- 001 ----- 0110011', tags=['fother'], isa_tags=['f16altvec']),
 
     # Unless RV32D supported
     R5('vfmv.x.ah',   'R3F', '1001100 00000 ----- 001 ----- 0110011', tags=['fother'], isa_tags=['f16altvecno32d']),
@@ -1191,8 +1188,8 @@ Xfvec = IsaSubset('fvec', [
     R5('vfcvt.b.xu', 'R3F2','1001100 00011 ----- 111 ----- 0110011', tags=['fconv'], isa_tags=['f8vecno32d']),
 
     # If F extension also supported (implies FLEN>=32)
-    R5('vfcpka.b.s', 'RVF4','1011000 ----- ----- 011 ----- 0110011', tags=['fother'], isa_tags=['f8vecf']),
-    R5('vfcpkb.b.s', 'RVF4','1011000 ----- ----- 111 ----- 0110011', tags=['fother'], isa_tags=['f8vecf']),
+    R5('vfcpka.b.s', 'R2VF','1011000 ----- ----- 011 ----- 0110011', tags=['fother'], isa_tags=['f8vecf']),
+    R5('vfcpkb.b.s', 'R2VF','1011000 ----- ----- 111 ----- 0110011', tags=['fother'], isa_tags=['f8vecf']),
 
     # # If D extension also supported (implies FLEN>=64)
     # R5('vfcvt.s.b',  'RVF2','1001100 00111 ----- 000 ----- 0110011', tags=['fconv'], isa_tags=['f8vecd']),
@@ -1271,7 +1268,7 @@ Xfaux = IsaSubset('faux', [
     R5('vfdotpex.s.r.b','RVF', '1001011 ----- ----- 111 ----- 0110011', tags=['fmadd'], isa_tags=['f8auxvec']),
     R5('vfavg.b',       'RVF', '1010110 ----- ----- 011 ----- 0110011', tags=['fadd'], isa_tags=['f8auxvec']),
     R5('vfavg.r.b',     'RVF', '1010110 ----- ----- 111 ----- 0110011', tags=['fadd'], isa_tags=['f8auxvec']),
-  
+
 ])
 
 

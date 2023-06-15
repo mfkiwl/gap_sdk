@@ -30,21 +30,16 @@
 
 #include "stdlib.h"
 #if defined(__GAP8__)
-#include "system_gap8.h"
+#include "device/system_gap8.h"
 #else
 #if defined(__VEGA__)
-#include "system_vega.h"
+#include "device/system_vega.h"
 #else
-#include "system_gap9.h"
+#include "device/system_gap9.h"
 #endif
 #endif  /* __GAP8__ */
 
-int32_t abs(int32_t x)
-{
-    return ((x < 0) ? -(x) : x);
-}
-
-void exit(int32_t status)
+void exit(int status)
 {
     system_exit(status);
     /* Wait forever... */

@@ -57,6 +57,8 @@
         .extern cluster_notify_fc_handler
         .extern fc_event_handler
         .extern dma_irq_handler
+        .extern pmu_event_handler
+        .extern gpio_handler
 /******************************************************************************/
 
 
@@ -148,13 +150,13 @@ _jump2main: /* Jump to main */
         j default_handler           /* IRQ=6 : undefined */
         j default_handler           /* IRQ=7 : undefined */
         j default_handler           /* IRQ=8 : undefined */
-        j dma_irq_handler           /* IRQ=9 : DMA IRQ Handler. */
+        j default_handler           /* IRQ=9 : undefined */
         j systick_handler           /* IRQ=10 : Systick Handler. */
         j default_handler           /* IRQ=11 : undefined */
         j default_handler           /* IRQ=12 : undefined */
         j default_handler           /* IRQ=13 : undefined */
         j default_handler           /* IRQ=14 : undefined */
-        j default_handler           /* IRQ=15 : undefined */
+        j gpio_handler              /* IRQ=15 : GPIO Handler. */
         j default_handler           /* IRQ=16 : undefined */
         j default_handler           /* IRQ=17 : undefined */
         j default_handler           /* IRQ=18 : undefined */
@@ -164,7 +166,7 @@ _jump2main: /* Jump to main */
         j default_handler           /* IRQ=22 : undefined */
         j default_handler           /* IRQ=23 : undefined */
         j default_handler           /* IRQ=24 : undefined */
-        j default_handler           /* IRQ=25 : undefined */
+        j pmu_scu_event_handler     /* IRQ=25 : PMU SCU OK event Handler. */
         j fc_event_handler          /* IRQ=26 : FC SoC event Handler. */
         j default_handler           /* IRQ=27 : undefined */
         j default_handler           /* IRQ=28 : undefined */

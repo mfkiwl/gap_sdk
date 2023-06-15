@@ -28,10 +28,12 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "vega_it.h"
+#include "device/vega_it.h"
 #include "pmsis/implem/hal/hal.h"
 #include "printf.h"
 #include "pmsis.h"
+
+uint32_t pi_irq_handler_wrapper_vector[32];
 
 /* Ecall Table. */
 const void *_ecall_vector[NB_ECALL] = {

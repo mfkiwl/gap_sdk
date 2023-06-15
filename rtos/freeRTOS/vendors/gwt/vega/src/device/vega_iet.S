@@ -45,7 +45,6 @@
 
         .extern cl_notify_fc_event_handler
         .extern fc_soc_event_handler
-        .extern pi_cl_dma_2d_handler
         .extern uTaskCheckQuantum
         .extern pi_task_delayed_increment_push
         .extern ASM_FUNC_SAVE_MINIMAL_CONTEXT
@@ -54,6 +53,7 @@
         .extern ASM_FUNC_RESTORE_MINIMAL_CONTEXT
         .extern ASM_FUNC_RESTORE_SAVE_CONTEXT
         .extern ASM_FUNC_RESTORE_CSR_CONTEXT
+        .extern __pi_pmu_handler
 
 
 /*******************************************************************************
@@ -72,6 +72,44 @@
 /*******************************************************************************
 	IRQ HANDLER
 *******************************************************************************/
+
+        /*
+        Generic wrapper for IRQs. Indirect FC IRQ handler.
+        Used to set an IRQ handler dynamically.
+        */
+        .extern pi_irq_handler_wrapper_vector
+        DECLARE pi_irq_handler_wrapper
+        /* Swap user stack and IRQ stack. */
+        csrrw   sp, mscratch, sp
+        addi    sp, sp, -(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        sw      ra, 0*PI_WORD_SIZE(sp)
+        jal     ra, ASM_FUNC_SAVE_MINIMAL_CONTEXT
+
+        // Get irq number.
+        csrr    t0, mcause
+        // Get pointer to handler
+        la      t1, pi_irq_handler_wrapper_vector
+        slli    t0, t0, 2
+#if !defined(ARCHI_CORE_HAS_PULPV2)
+        add     t1, t0, t1
+        lw      t1, 0x00(t1)
+#else
+        p.lw    t1, t0(t1)
+#endif
+
+        beqz    t1, __pi_irq_handler_wrapper_end
+
+        jalr   ra, t1
+
+__pi_irq_handler_wrapper_end:
+        // Restore current context.
+        jal     ra, ASM_FUNC_RESTORE_MINIMAL_CONTEXT
+        lw      ra, 0*PI_WORD_SIZE(sp)
+        addi    sp, sp, +(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        csrrw   sp, mscratch, sp
+        mret
+        .endfunc
+
 
         /* Default handler, weak func, should be redefined to be overwritten. */
 	.weak default_handler
@@ -178,6 +216,53 @@ _no_switch:
         .endfunc
 
 
+        /* PMU event Handler. */
+        .extern __pi_pmu_handler
+        DECLARE pmu_scu_event_handler
+        /* Save current context. */
+        addi sp, sp, -(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        sw ra, 0*PI_WORD_SIZE(sp)
+        jal ra, ASM_FUNC_SAVE_MINIMAL_CONTEXT
+        lw tp, pxCurrentTCB
+        sw sp, 0*0(tp)
+
+        jal ra, __pi_pmu_handler
+
+        /* Restore current context. */
+        lw tp, pxCurrentTCB
+        lw sp, 0*0(tp)
+        jal ra, ASM_FUNC_RESTORE_MINIMAL_CONTEXT
+        lw ra, 0*PI_WORD_SIZE(sp)
+        addi sp, sp, +(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        mret
+        .endfunc
+
+
+        /* GPIO handler. */
+        .extern __pi_gpio_handler
+        DECLARE gpio_handler
+        addi    sp, sp, -(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        sw      ra, 0*PI_WORD_SIZE(sp)
+        jal     ra, ASM_FUNC_SAVE_MINIMAL_CONTEXT
+        lw      tp, pxCurrentTCB
+        sw      sp, 0*0(tp)
+
+        /* ISR Stack. */
+        la      sp, __stack_irq_start__
+        or      a0, zero, zero
+        jal     ra, __pi_gpio_handler
+
+        /* Restore current context. */
+        lw      tp, pxCurrentTCB
+        lw      sp, 0*0(tp)
+        jal     ra, ASM_FUNC_RESTORE_MINIMAL_CONTEXT
+        lw      ra, 0*PI_WORD_SIZE(sp)
+        addi    sp, sp, +(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
+        mret
+        .endfunc
+
+
+
         /* FC SOC event Handler. */
         DECLARE fc_event_handler
         /* Save current context. */
@@ -194,30 +279,6 @@ _no_switch:
         /* Restore current context. */
         lw tp, pxCurrentTCB
         lw sp, 0*0(tp)
-        jal ra, ASM_FUNC_RESTORE_MINIMAL_CONTEXT
-        lw ra, 0*PI_WORD_SIZE(sp)
-        addi sp, sp, +(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
-        mret
-        .endfunc
-
-
-        /* DMA IRQ Handler. */
-        DECLARE dma_irq_handler
-        .equ CLUSTER_ID_FC, 32
-        addi sp, sp, -(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)
-        sw ra, 0*PI_WORD_SIZE(sp)
-        jal ra, ASM_FUNC_SAVE_MINIMAL_CONTEXT
-
-        /* Check cluster ID. */
-        csrr t0, mhartid
-        srli t1, t0, 5
-        li t0, CLUSTER_ID_FC
-        beq t1, t0, __dma_irq_is_fc
-
-        /* DMA IRQ for cluster core. */
-        jal ra, pi_cl_dma_2d_handler
-
-__dma_irq_is_fc:
         jal ra, ASM_FUNC_RESTORE_MINIMAL_CONTEXT
         lw ra, 0*PI_WORD_SIZE(sp)
         addi sp, sp, +(PI_VEGA_FULL_CONTEXT_SIZE * PI_WORD_SIZE)

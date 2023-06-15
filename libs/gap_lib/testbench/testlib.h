@@ -13,8 +13,13 @@
 
 #include "pmsis.h"
 #include "testbench.h"
+#include "testlib_i2s.h"
+#include "testlib_uart.h"
+#include "testlib_i2c.h"
 
 #define I2S_SLOT_STATIC_INIT {0}
+
+typedef struct i2s_test_s i2s_test_t;
 
 typedef struct
 {
@@ -60,6 +65,8 @@ typedef struct
     int ts_evt_en;
     int slot_disable;
     int bypass;
+    uint32_t frame;
+    uint32_t slab;
     union
     {
         struct
@@ -110,12 +117,15 @@ typedef struct
     int slot;
     int word_size;
     int elem_size;
-    pi_task_t task;
+    pi_task_t task[2];
+    int current_task;
+    int current_handled_task;
     uint32_t incr_start;
     uint32_t incr_end;
     uint32_t incr_value;
     uint32_t current_value;
     int nb_sample;
+    int nb_sample_done;
     int is_rx;
     int buffer_size;
     int nb_elem;
@@ -132,6 +142,12 @@ typedef struct
     int bypass;
     int mute_ack;
     void *buffers[2];
+    uint32_t frame;
+    i2s_test_t *test;
+    pi_mem_slab_t slab;
+    struct {
+        int use_slab:1;
+    } flags;
 }
 i2s_slot_test_t;
 
@@ -171,11 +187,15 @@ typedef struct
     uint32_t fifo_id;
     int8_t ws_delay;
     uint32_t incr;
+    uint64_t rx_frames;
+    uint64_t tx_frames;
+    uint64_t rx_slabs;
+    uint64_t tx_slabs;
 }
 i2s_test_config_t;
 
 
-typedef struct 
+typedef struct i2s_test_s
 {
     struct pi_device i2s;
     i2s_slot_test_t slot_test_rx[16];
@@ -194,7 +214,8 @@ pi_device_t *get_testbench();
 pi_device_t *i2s_init(struct pi_device *i2s, i2s_config_t *config);
 int i2s_deinit(struct pi_device *i2s, int itf);
 
-int i2s_slot_init(i2s_slot_test_t *i2s_slot, struct pi_device *i2s, i2s_slot_config_t *config);
+void i2s_slot_new(i2s_slot_test_t *i2s_slot);
+int i2s_slot_init(i2s_test_t *test, i2s_slot_test_t *i2s_slot, struct pi_device *i2s, i2s_slot_config_t *config);
 void i2s_slot_deinit(i2s_slot_test_t *i2s_slot);
 int i2s_slot_start(i2s_slot_test_t *i2s_slot, i2s_slot_start_config_t *config);
 int i2s_slot_stop(i2s_slot_test_t *i2s_slot);

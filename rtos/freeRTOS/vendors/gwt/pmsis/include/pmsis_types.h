@@ -34,27 +34,27 @@
 #include "pmsis/pmsis_types.h"
 #include "FreeRTOS_util.h"
 
-#ifndef IMPLEM_MUTEX_OBJECT_TYPE
-#define IMPLEM_MUTEX_OBJECT_TYPE \
+#ifndef IMPLEM_MUTEX_STATIC_TYPE
+#define IMPLEM_MUTEX_STATIC_TYPE \
     void* mutex_object;
 #endif
 
 struct pi_mutex
 {
-    IMPLEM_MUTEX_OBJECT_TYPE
+    IMPLEM_MUTEX_STATIC_TYPE
     __pmsis_mutex_func take;
     __pmsis_mutex_func release;
 };
 
-#ifndef IMPLEM_SEM_OBJECT_TYPE
-#define IMPLEM_SEM_OBJECT_TYPE \
+#ifndef IMPLEM_SEM_STATIC_TYPE
+#define IMPLEM_SEM_STATIC_TYPE \
     StaticSemaphore_t sem_object_static;\
     void* sem_object;
 #endif
 
 struct pi_sem
 {
-    IMPLEM_SEM_OBJECT_TYPE
+    IMPLEM_SEM_STATIC_TYPE
     __pi_sem_func take;
     __pi_sem_func give;
 };
@@ -68,6 +68,7 @@ struct pi_sem
 #define PI_TASK_IMPLEM_NB_DATA 8
 #endif  /* PI_TASK_IMPLEM_NB_DATA */
 
+
 typedef struct pi_task
 {
     struct pi_task *next; /* Pointer to next task at the begining to match with cluster callback. */
@@ -76,7 +77,7 @@ typedef struct pi_task
     int32_t id;
     uint32_t data[PI_TASK_IMPLEM_NB_DATA];
     uint32_t timeout;
-    pi_sem_t wait_on;
+    void *sync_obj;
     volatile int8_t done;
     int8_t core_id;
     int8_t cluster_id;

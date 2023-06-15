@@ -1,17 +1,6 @@
 #include "Gap.h"
-#include "MfccBasicKernels.h"
-#include "FFT_Library.h"
-#include "math_funcs.h"
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
-
-#ifndef abs
-#define abs(a)  (((a)<0) ? (-(a)) : (a))
-#endif
-#ifndef Min
-#define Min(x, y)       (((x)<(y))?(x):(y))
-#endif
+#include "DSP_Lib.h"
+#include "FastFloatApprox.h"
 
 // used in computelog -> assume output of log in Q16
 //#define LN_2   ((int) floor(log(2)*(float)(1<<QN)+0.5))
@@ -46,7 +35,7 @@ void MelFilterBank_Fix32(MelFilterBank_T *Arg)
         unsigned short int    *__restrict__ Mel_Coeffs     = (unsigned short int *__restrict__)    Arg->Mel_Coeffs;
         signed char  *__restrict__ shift_buff     = (signed char *__restrict__)  Arg->shift_buff;
         fbank_type_t *__restrict__ Mel_FilterBank = (fbank_type_t *__restrict__) Arg->Mel_FilterBank;
-        short int                  Mel_NBanks     = Arg->Mel_NBanks;
+        unsigned int               Mel_NBanks     = (unsigned int) Arg->Mel_NBanks;
         short int                  Mel_Coeff_Dyn  = Arg->Mel_Coeff_dyn;
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
 
@@ -97,7 +86,7 @@ void MelFilterBank_Fix32_Scal(MelFilterBank_T *Arg)
         signed char  *__restrict__ shift_fft      = (signed char *__restrict__)  Arg->shift_fft;
         short int    *__restrict__ Mel_Coeffs     = (short int *__restrict__)    Arg->Mel_Coeffs;
         fbank_type_t *__restrict__ Mel_FilterBank = (fbank_type_t *__restrict__) Arg->Mel_FilterBank;
-        short int                  Mel_NBanks     = Arg->Mel_NBanks;
+        unsigned int               Mel_NBanks     = (unsigned int) Arg->Mel_NBanks;
         short int                  Mel_Coeff_Dyn  = Arg->Mel_Coeff_dyn;
         signed char IsMagSquared = Arg->IsMagSquared;
         int MUL_EXP = IsMagSquared?2:1;
@@ -123,7 +112,7 @@ void MelFilterBank_Fix32_Scal(MelFilterBank_T *Arg)
                 }
                 // align the block scaling on the min , compute the max value in the block
                 for (k=0, j=Mel_FilterBank[i].Start; k<(unsigned int) NonZeroItems; j++, k++) {
-                        int TMP = FramePower[j] >> (MUL_EXP * (shift_fft[j] - min_shift));
+                        unsigned int TMP = FramePower[j] >> (MUL_EXP * (shift_fft[j] - min_shift));
                         if (TMP > (unsigned int) maxin) maxin = TMP;
                 }
 
@@ -153,15 +142,14 @@ void MelFilterBank_Fix32_Scal(MelFilterBank_T *Arg)
 #endif
 }
 
-#ifdef __gap9__
 void MelFilterBank_f16(MelFilterBank_T *Arg)
 {
         unsigned int i, j, k;
-        f16 *__restrict__ FramePower = (f16 *__restrict__) Arg->FramePower;
-        f16 *__restrict__ Mel_Spectr = (f16 *__restrict__) Arg->MelSpectr;
-        f16 *__restrict__ Mel_Coeffs = (f16 *__restrict__) Arg->Mel_Coeffs;
+        F16_DSP *__restrict__ FramePower = (F16_DSP *__restrict__) Arg->FramePower;
+        F16_DSP *__restrict__ Mel_Spectr = (F16_DSP *__restrict__) Arg->MelSpectr;
+        F16_DSP *__restrict__ Mel_Coeffs = (F16_DSP *__restrict__) Arg->Mel_Coeffs;
         fbank_type_t *__restrict__ Mel_FilterBank = (fbank_type_t *__restrict__) Arg->Mel_FilterBank;
-        short int                  Mel_NBanks     = Arg->Mel_NBanks;
+        unsigned int               Mel_NBanks     = (unsigned int) Arg->Mel_NBanks;
 
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
         //Chunk = ChunkSize(Mel_NBanks);
@@ -170,7 +158,7 @@ void MelFilterBank_f16(MelFilterBank_T *Arg)
 
         First = CoreId; int nb_cores = gap_ncore();
         for (i=First; i< Mel_NBanks; i+=nb_cores) {
-                f16 Coeff = 0;
+                F16_DSP Coeff = 0;
                 int Base = Mel_FilterBank[i].Base;
                 int NonZeroItems = Mel_FilterBank[i].Items;
                 for (k=0, j=Mel_FilterBank[i].Start; k<(unsigned int) NonZeroItems; j++, k++){
@@ -186,7 +174,6 @@ void MelFilterBank_f16(MelFilterBank_T *Arg)
         } gap_waitbarrier(0);
 #endif
 }
-#endif
 
 void MelFilterBank_f32(MelFilterBank_T *Arg)
 {
@@ -196,7 +183,7 @@ void MelFilterBank_f32(MelFilterBank_T *Arg)
         float *__restrict__ Mel_Spectr = (float *__restrict__) Arg->MelSpectr;
         float *__restrict__ Mel_Coeffs = (float *__restrict__) Arg->Mel_Coeffs;
         fbank_type_t *__restrict__ Mel_FilterBank = (fbank_type_t *__restrict__) Arg->Mel_FilterBank;
-        short int                  Mel_NBanks     = Arg->Mel_NBanks;
+        unsigned int               Mel_NBanks     = (unsigned int) Arg->Mel_NBanks;
 
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
         //Chunk = ChunkSize(Mel_NBanks);
@@ -224,7 +211,7 @@ void MelFilterBank_f32(MelFilterBank_T *Arg)
 
 void MFCC_ComputeLog_Fix32(MFCC_Log_T *Arg)
 {
-        int i;
+        unsigned int i;
         int         size      = Arg->FrameSize;
         unsigned int *frameIn = (unsigned int *) Arg->FrameIn;
         short int *frameOut = (short int *) Arg->FrameOut;
@@ -233,6 +220,7 @@ void MFCC_ComputeLog_Fix32(MFCC_Log_T *Arg)
         int         ExtraQ      = Arg->ExtraQ;
         int         FFT_QFormat = Arg->Q_FFT_Out;
         int         Mel_Coeff_Dyn = Arg->Mel_Coeff_Dyn;
+        int         LogOffset = Arg->LogOffset; // Q30
 
         // log is natural log in C
         int TMP;
@@ -241,26 +229,34 @@ void MFCC_ComputeLog_Fix32(MFCC_Log_T *Arg)
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
         if (Arg->IsMagSquared) {
-                for (i=First;i<Last;i++){
-                        int Qformat =  (Mel_Coeff_Dyn-shift_buff[i]+2*FFT_QFormat+2*ExtraQ); //POWER HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset){
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-shift_buff[i]+2*FFT_QFormat+2*ExtraQ); //POWER HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
+                } else  {
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-shift_buff[i]+2*FFT_QFormat+2*ExtraQ); //POWER HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
                 }
         } else {
-                for (i=First;i<Last;i++){
-                        int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset) {
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
+                } else {
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
                 }
         }
         gap_waitbarrier(0);
@@ -273,7 +269,7 @@ void MFCC_ComputeLog_Fix32(MFCC_Log_T *Arg)
 
 void MFCC_ComputeLog_Fix32_Scal(MFCC_Log_T *Arg)
 {
-        int i;
+        unsigned int i;
         int         size      = Arg->FrameSize;
         unsigned int *frameIn = (unsigned int *) Arg->FrameIn;
         short int   *frameOut = (short int *) Arg->FrameOut;
@@ -282,6 +278,7 @@ void MFCC_ComputeLog_Fix32_Scal(MFCC_Log_T *Arg)
         int         ExtraQ      = Arg->ExtraQ;
         int         FFT_QFormat = Arg->Q_FFT_Out;
         int         Mel_Coeff_Dyn = Arg->Mel_Coeff_Dyn;
+        int         LogOffset = Arg->LogOffset; // Q30
 
         // log is natural log in C
         int TMP;
@@ -290,26 +287,34 @@ void MFCC_ComputeLog_Fix32_Scal(MFCC_Log_T *Arg)
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
         if (Arg->IsMagSquared) {
-                for (i=First;i<Last;i++){
-                        int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset){
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
+                } else  {
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
                 }
         } else {
-                for (i=First;i<Last;i++){
-                        int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset){
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
+                } else  {
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(TMP - (Qformat-QNN) * LN_2_1F15, Norm), 15);
+                        }
                 }
         }
         gap_waitbarrier(0);
@@ -320,13 +325,13 @@ void MFCC_ComputeLog_Fix32_Scal(MFCC_Log_T *Arg)
 #endif
 }
 
-#ifdef __gap9__
-void MFCC_ComputeLog_f16( MFCC_Log_T *Arg)
+void MFCC_ComputeLog_f16( MFCC_LogF_T *Arg)
 {        
-        int i;
+        unsigned int i;
         int size      = Arg->FrameSize;
-        f16 *frameIn  = (f16 *) Arg->FrameIn;
-        f16 *frameOut = (f16 *) Arg->FrameOut;
+        F16_DSP *frameIn  = (F16_DSP *) Arg->FrameIn;
+        F16_DSP *frameOut = (F16_DSP *) Arg->FrameOut;
+        float LogOffset = Arg->LogOffset;
 
         // log is natural log in C
         int TMP;
@@ -334,12 +339,15 @@ void MFCC_ComputeLog_f16( MFCC_Log_T *Arg)
         Chunk = ChunkSize(size);
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
-        for (i=First;i<Last;i++){
-                #ifdef LOG_OFFSET_FLOAT
-                        frameOut[i] = (f16) logf((float) frameIn[i] + LOG_OFFSET_FLOAT);
-                #else
-                        frameOut[i] = (f16) logf((float) frameIn[i] + 1e-6);
-                #endif
+
+        if (LogOffset) {
+                for (i=First;i<Last;i++){
+                        frameOut[i] = (F16_DSP) fastlog((float) frameIn[i] + LogOffset);
+                }
+        } else {
+                for (i=First;i<Last;i++){
+                        frameOut[i] = (F16_DSP) fastlog((float) (frameIn[i]>1e-6?frameIn[i]:1e-6));
+                }
         }
         gap_waitbarrier(0);
 
@@ -349,14 +357,14 @@ void MFCC_ComputeLog_f16( MFCC_Log_T *Arg)
         } gap_waitbarrier(0);
 #endif
 }
-#endif
 
-void MFCC_ComputeLog_f32(MFCC_Log_T *Arg) 
+void MFCC_ComputeLog_f32(MFCC_LogF_T *Arg) 
 {
-        int i;
+        unsigned int i;
         int   size      = Arg->FrameSize;
         float *frameIn  = (float *) Arg->FrameIn;
         float *frameOut = (float *) Arg->FrameOut;
+        float LogOffset = Arg->LogOffset;
 
         // log is natural log in C
         int TMP;
@@ -364,12 +372,14 @@ void MFCC_ComputeLog_f32(MFCC_Log_T *Arg)
         Chunk = ChunkSize(size);
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
-        for (i=First;i<Last;i++){
-                #ifdef LOG_OFFSET_FLOAT
-                        frameOut[i] = (float) logf((float) frameIn[i] + LOG_OFFSET_FLOAT);
-                #else
-                        frameOut[i] = (float) logf((float) frameIn[i] + 1e-6);
-                #endif
+        if (LogOffset) {
+                for (i=First;i<Last;i++){
+                        frameOut[i] = (float) fastlog((float) frameIn[i] + LogOffset);
+                }
+        } else {
+                for (i=First;i<Last;i++){
+                        frameOut[i] = (float) fastlog((float) (frameIn[i]>1e-6?frameIn[i]:1e-6));
+                }
         }
         gap_waitbarrier(0);
 
@@ -382,7 +392,7 @@ void MFCC_ComputeLog_f32(MFCC_Log_T *Arg)
 
 void MFCC_ComputeDB_Fix32(MFCC_Log_T *Arg)
 {
-        int i;
+        unsigned int i;
         int         size      = Arg->FrameSize;
         unsigned int *frameIn = (unsigned int *) Arg->FrameIn;
         short int   *frameOut = (short int *) Arg->FrameOut;
@@ -391,6 +401,7 @@ void MFCC_ComputeDB_Fix32(MFCC_Log_T *Arg)
         int         ExtraQ      = Arg->ExtraQ;
         int         FFT_QFormat = Arg->Q_FFT_Out;
         int         Mel_Coeff_Dyn = Arg->Mel_Coeff_Dyn;
+        int         LogOffset = Arg->LogOffset; // Q30
 
         // log is natural log in C
         int TMP;
@@ -399,26 +410,34 @@ void MFCC_ComputeDB_Fix32(MFCC_Log_T *Arg)
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
         if (Arg->IsMagSquared) {
-                for (i=First;i<Last;i++){
-                        int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset){
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
+                } else  {
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
                 }
         } else {
-                for (i=First;i<Last;i++){
-                        int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset) {
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
+                } else {
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
                 }
         }
         gap_waitbarrier(0);
@@ -431,7 +450,7 @@ void MFCC_ComputeDB_Fix32(MFCC_Log_T *Arg)
 
 void MFCC_ComputeDB_Fix32_Scal(MFCC_Log_T *Arg)
 {
-        int i;
+        unsigned int i;
         int         size      = Arg->FrameSize;
         unsigned int *frameIn = (unsigned int *) Arg->FrameIn;
         short int   *frameOut = (short int *) Arg->FrameOut;
@@ -440,6 +459,7 @@ void MFCC_ComputeDB_Fix32_Scal(MFCC_Log_T *Arg)
         int         ExtraQ      = Arg->ExtraQ;
         int         FFT_QFormat = Arg->Q_FFT_Out;
         int         Mel_Coeff_Dyn = Arg->Mel_Coeff_Dyn;
+        int         LogOffset = Arg->LogOffset; // Q30
 
         // log is natural log in C
         int TMP;
@@ -448,26 +468,34 @@ void MFCC_ComputeDB_Fix32_Scal(MFCC_Log_T *Arg)
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
         if (Arg->IsMagSquared) {
-                for (i=First;i<Last;i++){
-                        int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset){
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
+                } else  {
+                        for (i=First;i<Last;i++){
+                                int Qformat =  (Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ); //POWER HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
                 }
         } else {
-                for (i=First;i<Last;i++){
-                        int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
-                        #ifdef LOG_OFFSET
-                                int Log_offset = ((QNN-Qformat)<=0)?LOG_OFFSET << (-QNN+Qformat):LOG_OFFSET >> (QNN-Qformat);
+                if (LogOffset) {
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
+                                unsigned int Log_offset = ((30-Qformat)<=0)?LogOffset << (-30+Qformat):LogOffset >> (30-Qformat);
                                 TMP = ulogn_17_15(frameIn[i] + Log_offset);
-                        #else
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
+                } else {
+                        for (i=First;i<Last;i++){
+                                int Qformat = (30 - shift_buff[i]); //Abs HIGH_PREC
                                 TMP = ulogn_17_15(frameIn[i]);
-                        #endif
-                        frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                                frameOut[i] = (short int) gap_clip(AT_NORM(10 * ((TMP * LN_10_INV_Q10 >> 10) - (Qformat-QNN) * LOG10_2), Norm), 15);
+                        }
                 }
         }
         gap_waitbarrier(0);
@@ -478,13 +506,13 @@ void MFCC_ComputeDB_Fix32_Scal(MFCC_Log_T *Arg)
 #endif
 }
 
-#ifdef __gap9__
-void MFCC_ComputeDB_f16( MFCC_Log_T *Arg)
+void MFCC_ComputeDB_f16( MFCC_LogF_T *Arg)
 {        
-        int i;
+        unsigned int i;
         int size      = Arg->FrameSize;
-        f16 *frameIn  = (f16 *) Arg->FrameIn;
-        f16 *frameOut = (f16 *) Arg->FrameOut;
+        F16_DSP *frameIn  = (F16_DSP *) Arg->FrameIn;
+        F16_DSP *frameOut = (F16_DSP *) Arg->FrameOut;
+        float LogOffset = Arg->LogOffset;
 
         // log is natural log in C
         int TMP;
@@ -492,12 +520,14 @@ void MFCC_ComputeDB_f16( MFCC_Log_T *Arg)
         Chunk = ChunkSize(size);
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
-        for (i=First;i<Last;i++){
-                #ifdef LOG_OFFSET_FLOAT
-                        frameOut[i] = (f16) 10*log10f((float) frameIn[i] + LOG_OFFSET_FLOAT);
-                #else
-                        frameOut[i] = (f16) 10*log10f((float) (frameIn[i]>1e-6?frameIn[i]:1e-6));
-                #endif
+        if (LogOffset) {
+                for (i=First;i<Last;i++){
+                        frameOut[i] = (float) 10*log10f((float) frameIn[i] + LogOffset);
+                }
+        } else {
+                for (i=First;i<Last;i++){
+                        frameOut[i] = (float) 10*log10f((float) (frameIn[i]>1e-6?frameIn[i]:1e-6));
+                }
         }
         gap_waitbarrier(0);
 
@@ -507,14 +537,14 @@ void MFCC_ComputeDB_f16( MFCC_Log_T *Arg)
         } gap_waitbarrier(0);
 #endif
 }
-#endif
 
-void MFCC_ComputeDB_f32(MFCC_Log_T *Arg) 
+void MFCC_ComputeDB_f32(MFCC_LogF_T *Arg) 
 {
-        int i;
+        unsigned int i;
         int    size     = Arg->FrameSize;
         float *frameIn  = (float *) Arg->FrameIn;
         float *frameOut = (float *) Arg->FrameOut;
+        float LogOffset = Arg->LogOffset;
 
         // log is natural log in C
         int TMP;
@@ -522,12 +552,14 @@ void MFCC_ComputeDB_f32(MFCC_Log_T *Arg)
         Chunk = ChunkSize(size);
         First = CoreId*Chunk; Last = Min(First + Chunk, size);
 
-        for (i=First;i<Last;i++){
-                #ifdef LOG_OFFSET_FLOAT
-                        frameOut[i] = (float) 10*log10f((float) frameIn[i] + LOG_OFFSET_FLOAT);
-                #else
+        if (LogOffset) {
+                for (i=First;i<Last;i++){
+                        frameOut[i] = (float) 10*log10f((float) frameIn[i] + LogOffset);
+                }
+        } else {
+                for (i=First;i<Last;i++){
                         frameOut[i] = (float) 10*log10f((float) (frameIn[i]>1e-6?frameIn[i]:1e-6));
-                #endif
+                }
         }
         gap_waitbarrier(0);
 
@@ -545,7 +577,7 @@ void norm_clip_16(Norm_Clip_args_T *Args)
         short int Norm = Args->Norm;
         int N = Args->N;
   
-        int i;
+        unsigned int i;
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
 
         if (CoreId==0) {
@@ -568,15 +600,15 @@ void norm_clip_32_melspect(MFCC_Clip_32_T *Args) {
         signed char *shift_buff = Args->shift_buff;
         int N = Args->N;
 
-        int i, Norm;
+        unsigned int i, Norm;
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
+        Chunk = ChunkSize(N);
+        First = CoreId*Chunk; Last = Min(First + Chunk, N);
 
-        if (CoreId==0){
-                for (i=0; i<(unsigned int)N; i++) {
-                        int Qformat = (30 - shift_buff[i]);
-                        Norm = Qformat - 16; //POWER
-                        Out[i] = (Norm<32)?(In[i] >> Norm):0;
-                }
+        for (i=First; i<Last; i++) {
+                int Qformat = (30 - shift_buff[i]);
+                Norm = Qformat - 16; //POWER
+                Out[i] = (Norm<32)?(In[i] >> Norm):0;
         }
         gap_waitbarrier(0);
 #ifdef PRINTDEB
@@ -598,26 +630,26 @@ void norm_clip_32_melspect_scal(MFCC_Clip_32_T *Args)
         int N = Args->N;
         signed char IsMagSquared = Args->IsMagSquared;
 
-        int i, Norm;
+        int Norm;
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
+        Chunk = ChunkSize(N);
+        First = CoreId*Chunk; Last = Min(First + Chunk, N);
 
-        if (CoreId==0){
-                if (IsMagSquared){
-                        for (i=0; i<(unsigned int)N; i++) {
-                                Norm = Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ - 16; //POWER HIGH_PREC
-                                Out[i] = (Norm<32)?(In[i] >> Norm):0;
-                        }
-                } else {
-                        for (i=0; i<(unsigned int)N; i++) {
-                                Norm = Mel_Coeff_Dyn-1-shift_buff[i]+ExtraQ - 16; //Abs HIGH_PREC
-                                Out[i] = (Norm<32)?(In[i] >> Norm):0;
-                        }                        
+        if (IsMagSquared){
+                for (unsigned int i=First; i<Last; i++) {
+                        Norm = Mel_Coeff_Dyn-2-shift_buff[i]+2*ExtraQ - 16; //POWER HIGH_PREC
+                        Out[i] = (Norm<32)?(In[i] >> Norm):0;
                 }
+        } else {
+                for (unsigned int i=First; i<Last; i++) {
+                        Norm = Mel_Coeff_Dyn-1-shift_buff[i]+ExtraQ - 16; //Abs HIGH_PREC
+                        Out[i] = (Norm<32)?(In[i] >> Norm):0;
+                }                        
         }
         gap_waitbarrier(0);
 #ifdef PRINTDEB
         if (CoreId==0) {
-                printf("\nout_norm_clip = np.array([\n\t"); for (i=0; i<N; i++) printf("%d, ", Out[i]); printf("])\n");
+                printf("\nout_norm_clip = np.array([\n\t"); for (unsigned int i=0; i<N; i++) printf("%d, ", Out[i]); printf("])\n");
         }
 #endif
 }
@@ -628,8 +660,8 @@ void MFCC_ComputeDCT_II_Fix16(DCT_II_Arg_T *Args)
         v2s * in_dct   = (v2s * __restrict__ ) Args->Data;
         short int * DCTCoeff = (short int * __restrict__) Args->DCTCoeff;
         short int * FeatList = (short int * __restrict__ ) Args->FeatList;
-        short int NDCT       = Args->n_dct;
-        short int NInputs    = Args->n_input;
+        unsigned int NDCT  = (unsigned int) Args->n_dct;
+        unsigned int NInputs = (unsigned int) Args->n_input;
 
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
 
@@ -654,15 +686,14 @@ void MFCC_ComputeDCT_II_Fix16(DCT_II_Arg_T *Args)
 #endif
 }
 
-#ifdef __gap9__
 void MFCC_ComputeDCT_II_f16(DCT_II_Arg_T *Args)
 {
         unsigned int i,k;
-        v2h * in_dct   = (v2h * __restrict__ ) Args->Data;
-        f16 * FeatList = (f16 * __restrict__ ) Args->FeatList;
-        f16 * DCTCoeff = (f16 * __restrict__) Args->DCTCoeff;
-        short int NDCT       = Args->n_dct;
-        short int NInputs    = Args->n_input;
+        F16V_DSP * in_dct  = (F16V_DSP * __restrict__ ) Args->Data;
+        F16_DSP * FeatList = (F16_DSP * __restrict__ ) Args->FeatList;
+        F16_DSP * DCTCoeff = (F16_DSP * __restrict__) Args->DCTCoeff;
+        unsigned int NDCT  = (unsigned int) Args->n_dct;
+        unsigned int NInputs = (unsigned int) Args->n_input;
 
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
 
@@ -670,24 +701,23 @@ void MFCC_ComputeDCT_II_f16(DCT_II_Arg_T *Args)
         Chunk = ChunkSize(NInputs);
         First = CoreId*Chunk; Last = Min(First + Chunk, NInputs);
         for (k=First; k<Last; k++) {
-                f16 Acc = 0;
-                v2h *DCT_Table = (v2h *) &DCTCoeff[k*NDCT];
+                F16_DSP Acc = 0;
+                F16V_DSP *DCT_Table = (F16V_DSP *) &DCTCoeff[k*NDCT];
                 for (i=0; i<NDCT/4; i++){
-                        v2h A = in_dct[2*i]   * DCT_Table[2*i]; 
-                        v2h B = in_dct[2*i+1] * DCT_Table[2*i+1]; 
+                        F16V_DSP A = in_dct[2*i]   * DCT_Table[2*i]; 
+                        F16V_DSP B = in_dct[2*i+1] * DCT_Table[2*i+1]; 
                         Acc += A[0] + A[1] + B[0] + B[1];
                 }
-                for (i=NDCT/4*4; i<NDCT; i++) Acc += ((f16 *) in_dct)[i] * ((f16 *) DCTCoeff)[k*NDCT+i];
+                for (i=NDCT/4*4; i<NDCT; i++) Acc += ((F16_DSP *) in_dct)[i] * ((F16_DSP *) DCTCoeff)[k*NDCT+i];
                 FeatList[k] = Acc;
         }
         gap_waitbarrier(0);
 #if PRINTDEB
         if (CoreId==0) {
-                printf("\nout_dct_ii = np.array([\n", NDCT); for (int i=0; i<NDCT; i++) printf("%f, ", FeatList[i]); printf("])\n");
+                printf("\nout_dct_ii = np.array([\n"); for (int i=0; i<NDCT; i++) printf("%f, ", FeatList[i]); printf("])\n");
         } gap_waitbarrier(0);
 #endif
 }
-#endif
 
 void MFCC_ComputeDCT_II_f32(DCT_II_Arg_T *Args)
 {
@@ -695,8 +725,8 @@ void MFCC_ComputeDCT_II_f32(DCT_II_Arg_T *Args)
         float * in_dct   = (float * __restrict__ ) Args->Data;
         float * FeatList = (float * __restrict__ ) Args->FeatList;
         float * DCTCoeff = (float * __restrict__) Args->DCTCoeff;
-        short int NDCT       = Args->n_dct;
-        short int NInputs    = Args->n_input;
+        unsigned int NDCT  = (unsigned int) Args->n_dct;
+        unsigned int NInputs = (unsigned int) Args->n_input;
 
         unsigned int Chunk, First, Last, CoreId=gap_coreid();
 
@@ -734,11 +764,10 @@ void MFCC_Lifter_Fix16(Lifter_Arg_T *Args)
         gap_waitbarrier(0);
 }
 
-#ifdef __gap9__
 void MFCC_Lifter_f16(Lifter_Arg_T *Args)
 {
-        f16 * FeatList  = (f16 * __restrict__ ) Args->FeatList;
-        f16 * LiftCoeff = (f16 * __restrict__ ) Args->LiftCoeff;
+        F16_DSP * FeatList  = (F16_DSP * __restrict__ ) Args->FeatList;
+        F16_DSP * LiftCoeff = (F16_DSP * __restrict__ ) Args->LiftCoeff;
         int FrameSize   = Args->FrameSize;
         unsigned int j, Chunk, First, Last, CoreId=gap_coreid();
         Chunk = ChunkSize(FrameSize);
@@ -747,7 +776,6 @@ void MFCC_Lifter_f16(Lifter_Arg_T *Args)
         for (j=First; j<Last; j++) FeatList[j] = FeatList[j] * LiftCoeff[j];
         gap_waitbarrier(0);
 }
-#endif
 
 void MFCC_Lifter_f32(Lifter_Arg_T *Args)
 {

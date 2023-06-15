@@ -1,15 +1,3 @@
-
-define include_target
-
--include $(1)/rules/pulpos/src.mk
-
-endef
-
-
-$(foreach module, $(PULPOS_MODULES), $(eval $(call include_target,$(module))))
-
-
-
 ifeq '$(CONFIG_CRT0)' '1'
 PULP_ASM_SRCS += kernel/crt0.S
 endif
@@ -19,19 +7,27 @@ PULP_SRCS += lib/libc/minimal/io.c lib/libc/minimal/fprintf.c lib/libc/minimal/p
 endif
 
 ifdef CONFIG_KERNEL
-PULP_SRCS += kernel/init.c kernel/kernel.c kernel/device.c kernel/task.c kernel/alloc.c \
-	kernel/alloc_pool.c kernel/irq.c kernel/soc_event.c kernel/log.c kernel/time.c
+PULP_SRCS += kernel/init.c kernel/kernel.c kernel/device.c kernel/task.c \
+             kernel/irq.c kernel/soc_event.c kernel/log.c kernel/time.c kernel/mem_slab.c
+			 #kernel/alloc.c kernel/alloc_pool.c \ # now shared in pmsis implem
 
 PULP_ASM_SRCS += kernel/irq_asm.S kernel/time_asm.S
 
+ifdef CONFIG_MULTI_THREADING
+PULP_SRCS += kernel/thread.c
+PULP_ASM_SRCS += kernel/thread_asm.S
+PULP_CFLAGS += -DCONFIG_MULTI_THREADING=1
 endif
+
+endif
+
 
 
 # HYPER
 
 ifeq '$(CONFIG_HYPER)' '1'
-ifneq '$(udma/version)' ''
-ifeq '$(TARGET_CHIP_FAMILY)' 'GAP8'
+ifneq '$(udma/hyper/version)' ''
+ifeq '$(TARGET_CHIP_FAMILY)' 'GAP9'
 HYPER_HAS_ASM = 1
 HYPER_HAS_OCTOSPI = 1
 endif
@@ -124,12 +120,9 @@ endif
 
 # Cluster
 ifeq '$(CONFIG_CLUSTER)' '1'
-ifneq '$(cluster/version)' ''
+ifeq '$(cluster/version)' '3'
 PULP_SRCS += drivers/cluster/cluster.c
 PULP_ASM_SRCS += drivers/cluster/pe-eu-v$(event_unit/version).S
-ifneq '$(event_unit/version)' '3'
-PULP_ASM_SRCS += drivers/cluster/pe-eu-v$(event_unit/version)_task.S
-endif
 endif
 endif
 

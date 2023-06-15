@@ -9,6 +9,11 @@
 #include "gaplib/ImgIO.h"
 #include "stdint.h"
 
+#ifndef SILENT
+    #define PRINTF printf
+#else
+    #define PRINTF(...) ((void) 0)
+#endif
 
 #define Max(a, b)               (((a)>(b))?(a):(b))
 #define Min(a, b)               (((a)<(b))?(a):(b))
@@ -43,7 +48,7 @@ void SkipCommentAndWhiteSpace(unsigned char *pImg, int buf_len, int *i)
 	while (*i < buf_len && (pImg[*i] == '#'||pImg[*i] == ' '||pImg[*i] == '\t'||pImg[*i] == '\r'||pImg[*i] == '\n')) {
 		if (saw_nl && pImg[*i] == '#') {
 			while (*i < buf_len && pImg[*i] != '\n') {
-				printf("%c", pImg[*i]);
+				//printf("%c", pImg[*i]);
 				(*i)++;
 			}
 		}
@@ -113,8 +118,8 @@ static int GetInputImageInfos(char *Name, unsigned int *W, unsigned int *H, unsi
 			Err = 1;
 		} else {
 			PRINTF("Image %s:  [W: %d, H: %d] Bytes per pixel %d, HeaderSize: %d\n", Name, *W, *H, *BytesPerPixel, *HeaderSize);
-			for (i=0; i<*HeaderSize;i++) PRINTF("%c", Header[i]);
-			PRINTF("\n");
+			//for (i=0; i<*HeaderSize;i++) PRINTF("%c", Header[i]);
+			//PRINTF("\n");
 		}
 	} else {
 		printf("Unable to read header %s", Name);
@@ -129,8 +134,13 @@ static int GetInputImageInfos(char *Name, unsigned int *W, unsigned int *H, unsi
 static int ReadMultiChannelImageRGB565(switch_file_t File, unsigned short * InBuffer, int W, int H)
 {
 	unsigned int RowSize = W*3;
-	unsigned char InputBuf[RowSize];
 	unsigned short * pInBuffer = InBuffer;
+    unsigned char *InputBuf = (unsigned char *) __ALLOC_L2(RowSize * sizeof(unsigned char));
+    if(InputBuf == NULL)
+    {
+        printf("Malloc failed when loading image\n");
+        return -1;
+    }
 
 	for (int CurRow=0; CurRow < H; CurRow++) {
 		int RemainBytes = RowSize;
@@ -146,14 +156,20 @@ static int ReadMultiChannelImageRGB565(switch_file_t File, unsigned short * InBu
             j+=3;
 		}
 	}
+	__FREE_L2(InputBuf, RowSize);
 	return 0;
 }
 
 static int ReadMultiChannelImageTranspose2CHW(switch_file_t File, signed char * InBuffer, int W, int H, int BytesPerPixel)
 {
 	unsigned int RowSize = W*BytesPerPixel, ChannelSize = W * H;
-	unsigned char InputBuf[RowSize];
 	signed char * pInBuffer = InBuffer;
+    unsigned char *InputBuf = (unsigned char *) __ALLOC_L2(RowSize * sizeof(unsigned char));
+    if(InputBuf == NULL)
+    {
+        printf("Malloc failed when loading image\n");
+        return -1;
+    }
 
 	for (int CurRow=0; CurRow < H; CurRow++) {
 		int RemainBytes = RowSize;
@@ -170,14 +186,20 @@ static int ReadMultiChannelImageTranspose2CHW(switch_file_t File, signed char * 
 			}
 		}
 	}
+	__FREE_L2(InputBuf, RowSize);
 	return 0;
 }
 
 static int ReadMultiChannelImage(switch_file_t File, signed char * InBuffer, int W, int H, int BytesPerPixel)
 {
 	unsigned int RowSize = W*BytesPerPixel, ChannelSize = W * H;
-	unsigned char InputBuf[RowSize];
 	signed char * pInBuffer = InBuffer;
+    unsigned char *InputBuf = (unsigned char *) __ALLOC_L2(RowSize * sizeof(unsigned char));
+    if(InputBuf == NULL)
+    {
+        printf("Malloc failed when loading image\n");
+        return -1;
+    }
 
 	for (int CurRow=0; CurRow < H; CurRow++) {
 		int RemainBytes = RowSize;
@@ -194,14 +216,20 @@ static int ReadMultiChannelImage(switch_file_t File, signed char * InBuffer, int
 			}
 		}
 	}
+	__FREE_L2(InputBuf, RowSize);
 	return 0;
 }
 
 static int ReadMultiChannelImageShortTranspose2CHW(switch_file_t File, short int * InBuffer, int W, int H, int BytesPerPixel)
 {
 	unsigned int RowSize = W*BytesPerPixel, ChannelSize = W * H;
-	unsigned char InputBuf[RowSize];
 	short int * pInBuffer = InBuffer;
+    unsigned char *InputBuf = (unsigned char *) __ALLOC_L2(RowSize * sizeof(unsigned char));
+    if(InputBuf == NULL)
+    {
+        printf("Malloc failed when loading image\n");
+        return -1;
+    }
 
 	for (int CurRow=0; CurRow < H; CurRow++) {
 		int RemainBytes = RowSize;
@@ -218,14 +246,20 @@ static int ReadMultiChannelImageShortTranspose2CHW(switch_file_t File, short int
 			}
 		}
 	}
+	__FREE_L2(InputBuf, RowSize);
 	return 0;
 }
 
 static int ReadMultiChannelImageShort(switch_file_t File, short int * InBuffer, int W, int H, int BytesPerPixel)
 {
 	unsigned int RowSize = W*BytesPerPixel, ChannelSize = W * H;
-	unsigned char InputBuf[RowSize];
 	short int * pInBuffer = InBuffer;
+    unsigned char *InputBuf = (unsigned char *) __ALLOC_L2(RowSize * sizeof(unsigned char));
+    if(InputBuf == NULL)
+    {
+        printf("Malloc failed when loading image\n");
+        return -1;
+    }
 
 	for (int CurRow=0; CurRow < H; CurRow++) {
 		int RemainBytes = RowSize;
@@ -242,14 +276,20 @@ static int ReadMultiChannelImageShort(switch_file_t File, short int * InBuffer, 
 			}
 		}
 	}
+	__FREE_L2(InputBuf, RowSize);
 	return 0;
 }
 
 static int ReadShortImage(switch_file_t File, short int * InBuffer, int W, int H, int BytesPerPixel)
 {
 	unsigned int RowSize = W*BytesPerPixel, ChannelSize = W * H;
-	short int InputBuf[RowSize];
 	short int * pInBuffer = InBuffer;
+    unsigned char *InputBuf = (unsigned char *) __ALLOC_L2(RowSize * sizeof(unsigned char));
+    if(InputBuf == NULL)
+    {
+        printf("Malloc failed when loading image\n");
+        return -1;
+    }
 
 	for (int CurRow=0; CurRow < H; CurRow++) {
 		int RemainBytes = RowSize*2;
@@ -266,6 +306,7 @@ static int ReadShortImage(switch_file_t File, short int * InBuffer, int W, int H
 			}
 		}
 	}
+	__FREE_L2(InputBuf, RowSize);
 	return 0;
 }
 

@@ -43,6 +43,11 @@
 
 #if (!defined(HW_VERIF_ONLY))
 
+#ifdef __GAP9__
+#define PI_INLINE_FREQ_LVL_0
+#include "pmsis/chips/gap9/gap9.h"
+#endif
+
 /* Backend includes. */
 #include "pmsis/backend/implementation_specific_defines.h"
 #include "pmsis/targets/target.h"
@@ -69,7 +74,21 @@
 
 #endif  /* HW_VERIF_ONLY */
 
+/* PMSIS implem includes */
+#ifdef __GAP9__
+#include "chips/gap9/drivers/cluster/implem.h"
+#include "malloc/alloc_types.h"
+#include "malloc/cl_alloc.h"
+#include <malloc/alloc.h>
+#include <malloc/alloc_pool.h>
+#endif
+
 /* Hal includes. */
 #include "pmsis/implem/hal/hal.h"
+
+/* GVSOC proxy includes. */
+#if defined(__PLATFORM_GVSOC__)
+#include "pmsis/platforms/gvsoc.h"
+#endif  /* __PLATFORM_GVSOC__ */
 
 #endif  /* __PMSIS_H__ */

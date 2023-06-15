@@ -3,35 +3,38 @@
 [GWT-logo]: logo.png
 [GWT-link]: https://greenwaves-technologies.com/
 
-# Setting up the GAP SDK
+# GAP SDK
 
 ## About
 
-The GAP SDK allows you to compile and execute applications on the GAP IoT
-Application Processor. This SDK is an extract of the necessary elements from
-the [pulp-sdk](https://github.com/pulp-platform/pulp-sdk) produced by the PULP
-project, to provide a development environment for the GAP series processors.
-
+The GAP SDK allows you to compile and execute applications on the GAP Series Processors.
 We provide you with a set of tools and two different operating systems for GAP:
 
 * [Tools](https://greenwaves-technologies.com/tools-and-software/)
-  * GAP RISCV GNU toolchain: a pre-compiled toolchain inherited from RISC V
-      project with support for our extensions to the RISC-V Instruction Set
-      Architecture.
+  * GAP RISCV GNU toolchain: a pre-compiled toolchain inherited from RISC-V
+    project with support for our extensions to the RISC-V Instruction Set
+    Architecture.
      * Program / control GAP
      * Debug your application using GDB
      * Program the GAPuino flash memory with applications
   * [NNTOOL](https://github.com/GreenWaves-Technologies/gap_sdk/blob/master/tools/nntool/README.md):
     a set of tools based on Python helps to port NN graphs from various NN
-    training packages to GAP
-  * [GVSOC](https://gvsoc.readthedocs.io/en/latest/)
-    GVSOC is a lightweight and flexible instruction set simulator which can simulate GreenWaves' GAP series processors. GVSOC allows execution of programs on a virtual platform without any hardware limits. Thanks to device models, full application with real device drivers can be simulated. Currently, we provide simulations of devices such as cameras, microphones, LCDs, etc.
-  * [Profiler] Profiler is a part of GWT GAP SDK and used with GVSOC, GWT Full System SoC Simulator. Profiler gives a visual view of what is happening inside the chip and allows to control the simulator through a graphic interface. Profiler is an extremely useful tool for developing and debugging applications on GAP processors.
+    training packages to GAP.
   * [Autotiler](https://greenwaves-technologies.com/manuals/BUILD/AUTOTILER/html/index.html):
     a code generator for GAP, which can generate a user algorithm (CNN,
     MatrixAdd, MatrixMult, FFT, MFCC, etc) with optimized memory management.
-  * gapy: a Python utility for building the flashimage, creating
+  * Gapy: a Python utility for building the flashimage, creating
     partitions and filesystems, executing OpenOCD, etc.
+  * [GVSOC](https://greenwaves-technologies.com/gvsoc-the-full-system-simulator-for-profiling-gap-applications/)
+    is a lightweight and flexible instruction set simulator which can
+    simulate GreenWaves' GAP series processors. GVSOC allows execution of
+    programs on a virtual platform without any hardware limits.
+    Thanks to device models, full application with real device drivers can be
+    simulated. Currently, we provide simulations of devices such as cameras,
+    microphones, LCDs, etc.
+  * Profiler: Profiler gives a visual view of what is happening inside the chip and allows to control the simulator through a graphic interface. 
+
+
 * Operating Systems
   * PULP OS - The open source embedded RTOS produced by the PULP project
   * FreeRTOS - FreeRTOS is an open source real-time operating system.
@@ -44,14 +47,16 @@ We provide you with a set of tools and two different operating systems for GAP:
 ## Getting started with the GAP SDK
 
 ### Ubuntu 18.04/20.04
+
 #### OS Requirements installation
-These instructions were developed using a fresh Ubuntu 18.04 Bionic Beaver
+
+These instructions were developed using a fresh Ubuntu 20.04 (Focal Fossa)
 64-Bit virtual machine from
-[OS-Boxes](https://www.osboxes.org/ubuntu/#ubuntu-1804-info).
+[OS-Boxes](https://www.osboxes.org/ubuntu/#ubuntu-2004-info).
 
 The following packages need to be installed:
 
-~~~~~shell
+```bash
 sudo apt-get install -y \
     autoconf \
     automake \
@@ -69,6 +74,7 @@ sudo apt-get install -y \
     libsdl2-dev \
     libsdl2-ttf-dev \
     libsndfile1-dev \
+    graphicsmagick-libmagick-dev-compat \
     libtool \
     libusb-1.0-0-dev \
     pkg-config \
@@ -77,94 +83,68 @@ sudo apt-get install -y \
     scons \
     texinfo \
     wget
-~~~~~
+```
 
-For Ubuntu 20.04 only:
-~~~~shell
+#### Python Package Management
+
+SDK and some tools are all based on Python3 (version > 3.8), you can use following command to set your default python to python3.  
+
+```bash
 sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
-~~~~
+```
+
 This will setup a "python" binary pointing at python3.
 
-##### GAP8 OpenOCD
-Clone, build and install OpenOCD for GAP8:
-
-~~~~~shell
-git clone https://github.com/GreenWaves-Technologies/gap8_openocd.git
-cd gap8_openocd
-./bootstrap
-./configure --program-prefix=gap8- --prefix=/usr --datarootdir=/usr/share/gap8-openocd
-make -j
-sudo make -j install
-
-#Finally, copy openocd udev rules and reload udev rules
-sudo cp /usr/share/gap8-openocd/openocd/contrib/60-openocd.rules /etc/udev/rules.d
-sudo udevadm control --reload-rules && sudo udevadm trigger
-~~~~~
-
-Now, add your user to dialout group.
-
-~~~~~shell
-sudo usermod -a -G dialout <username>
-# This will require a logout / login to take effect
-~~~~~
-
-Finally, logout of your session and log back in.
-
-If you are using a Virtual Machine make sure that you give control of the FTDI
-device to your virtual machine. Plug the GAPuino into your USB port and then
-allow the virtual machine to access it.
-For example, for VirtualBox go to Devices->USB and select the device.
-
-Please also make sure that your Virtual Machine USB emulation matches your PC
-USB version. A mismatch causes the USB interface to be very slow.
-
-The following instructions assume that you install the GAP SDK into your home
-directory. If you want to put it somewhere else then please modify them
-accordingly.
+We strongly recommend to use [Anaconda3](https://www.anaconda.com/) to manage python packages
 
 ## Download and install the toolchain
 
-Now clone the GAP SDK and the GAP/RISC-V toolchain:
+Now clone the GAP/RISC-V toolchain:
 
-~~~~~shell
-git clone https://github.com/GreenWaves-Technologies/gap_riscv_toolchain_ubuntu_18.git
-~~~~~
+```bash
+git clone https://github.com/GreenWaves-Technologies/gap_riscv_toolchain_ubuntu.git
+```
 
 Install the toolchain (this may require to launch the script through sudo):
 
-~~~~~shell
-cd ~/gap_riscv_toolchain_ubuntu_18
+```bash
+cd gap_riscv_toolchain_ubuntu
 ./install.sh
-~~~~~
+```
 
-Finally, clone the sdk (adapt gap_sdk path according to your needs)
+Clone the actual gap_sdk repository
 
-~~~~~shell
-git clone https://github.com/GreenWaves-Technologies/gap_sdk.git
-cd ~/gap_sdk
-~~~~~
+- gitlab: you can find the url on the top, blue button which written "Clone"
+- github: you can find the url on the top, green button which written "Code"
+
+Then run:
+
+```bash
+git clone <the url of this repository>
+```
+
+If you are using ssh to clone, don't forget to put your ssh-key in your account. 
 
 ## Configure the SDK
 
 You can either source sourceme.sh in the root sdk folder and then select the
 right board from the list, or directly source the board config.
 
-~~~~~shell
+```bash
 source sourceme.sh
-~~~~~
+```
 
 or
 
-~~~~~shell
-# replace gapuino_v3.sh by the board you want
-source config/gapuino_v3.sh
-~~~~~
+```bash
+source config/<the target you want to use>.sh
+```
 
-If you directly source the board config, you need to source the appropriate
-config file for the board that you have. The SDK supports 3 boards (gapuino, 
-gapoc_a and gapoc_b) and each of them can use version 1/2/3 of the GAP8 chip. 
-Boards bought before 10/2019 contains GAP8 version 1 and use a USB B plug for 
-JTAG while the ones bought after contains version 2/3 and use a USB micro B 
+For GAP8, if you directly source the board config, you need to source the appropriate
+config file for the board that you have. The SDK supports 3 boards (gapuino,
+gapoc_a and gapoc_b) and each of them can use version 1/2/3 of the GAP8 chip.
+Boards bought before 10/2019 contains GAP8 version 1 and use a USB B plug for
+JTAG while the ones bought after contains version 2/3 and use a USB micro B
 for JTAG.
 
 Once the proper config file is sourced, you can proceed with the SDK build.
@@ -175,67 +155,112 @@ board. In this case the SDK will have to be built again. As soon as the SDK
 has been built once for a board configuration, it does not need to be built
 again for this configuration, unless the SDK is cleaned.
 
-## Minimal install (FreeRTOS only, no neural network tools)
-
-We will first make a minimal install to check whether previous steps were
-successful.
-If you are only doing board bringup or peripheral testing, this install will
-also be a sufficient.
-
 ### Python requirements
 
 Our modules (gapy runner) require a few additional Python packages that you
 can install with this command from GAP SDK root folder:
 
-~~~~~shell
+```bash
 pip3 install -r requirements.txt
 pip3 install -r doc/requirements.txt
-~~~~~
+```
 
-### SDK install
+### SDK installation
 
 First, use the following command to configure the shell environment correctly
 for the GAP SDK.
-It must be done for each terminal session**:
+It must be done for each terminal session:
 
-~~~~~shell
-cd ~/gap_sdk
+```bash
+cd path/to/gap_sdk
 # Choose which board
 source sourceme.sh
-~~~~~
+```
 
 Tip: You can add an "alias" command as follows in your .bashrc file:
 
-~~~~~shell
-alias GAP_SDK='cd ~/gap_sdk && source sourceme.sh'
-~~~~~
+```bash
+alias GAP_SDK='cd path/to/gap_sdk && source sourceme.sh'
+```
 
-Typing GAP_SDK will now change to the gap_sdk directory and execute the source
+Typing `GAP_SDK` will now change to the gap_sdk directory and execute the source
 command.
 
-Then, compile the minimal set of dependencies to run examples:
+Once in the SDK, run `make help` to get commands and get SDK ready to use.
 
-~~~~~shell
-make minimal_sdk
-~~~~~
+```
+$ make help
+=================== GAP SDK ===================
+
+Main targets:
+ - clean       : clean the SDK
+ - all         : build the whole SDK with all tools
+ - minimal     : get latest sources for all rtos and libs
+ - gvsoc       : build GVSOC simulation platform
+ - openocd.all : build OpenOCD tools to run simulation on boards
+ - nntool      : build nntool
+```
+
+Then, depends on what you need, build the SDK accordingly
+
+```bash
+make <target>
+```
+#### Install OpenOCD Rules 
+
+* Copy openocd udev rules and reload udev rules
+
+```bash
+sudo cp <your openocd path>/openocd/contrib/60-openocd.rules /etc/udev/rules.d
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+* Now, add your user to dialout group.
+
+```bash
+sudo usermod -a -G dialout <username>
+```
+
+This will require a logout / login to take effect
+
+### Build SDK Doc
+
+SDK Doc is build and generated based on SPHINX [https://www.sphinx-doc.org/en/master/], the SDK will have installed all the necessary packages for you.  
+You just need to run:
+
+```bash
+cd doc
+make html
+```
+
+This will generate the doc in HTML in 
+```
+doc/_build/html/  
+```
+and open the file index.html with your browser
+
+**Within this doc, you can find all the api descriptions, how to use our tools (like nntool, gvsoc, profiler, etc), and some useful application notes.**
 
 ### Helloworld
 
 Finally try a test project. First connect your GAPuino to your PCs USB port.
 Now, you should be able to run your first helloworld on the board.
 
-~~~~~shell
-cd examples/pmsis/helloworld
+```bash
+cd examples/<target name>/basic/helloworld
 make clean all run PMSIS_OS=freertos platform=board
-~~~~~
+```
 
-In details: PMSIS_OS allows us to choose an OS (freertos/pulpos), platform
-allows to choose the runner (board/gvsoc) and io choose the default output
-for printf (host/uart).
+In details, `PMSIS_OS`, `platform`, `io` are used to configure the RTOS to run
+the example on, specify the runner, and select the output for printf.
+
+* PMSIS_OS : RTOS (freertos/pulpos)
+* platform : board gvsoc rtl fpga (defult if not set is gvsoc)
+* io       : disable host(semihosting) uart rtl (defult if not set is semihosting)
 
 After the build you should see an output resembling:
 
-~~~~~
+```
      *** PMSIS HelloWorld ***
 
      Entering main controller
@@ -254,7 +279,7 @@ After the build you should see an output resembling:
      Detected end of application, exiting with status: 0
      Loop exited
      commands completed
-~~~~~
+```
 
 If this fails, ensure that you followed previous steps correctly (openocd
 install, udev rules).
@@ -266,139 +291,12 @@ follow the next section
 
 If you just wish to also have access to pulp-os simply type:
 
-~~~~~shell
+```bash
 # compile pulp-os and its librairies
 make pulp-os
-~~~~~
+```
 
-And replace PMSIS_OS=freertos by PMSIS_OS=pulpos on your run command line.
-
-## Full Install
-
-### Python requirements
-
-In order to use the GAP tools for neural networks (nntool), we strongly
-encourage to install the Anaconda distribution ( Python3 ). You can find more
-information on [Anaconda website](https://www.anaconda.com/).
-
-Note that this is needed only if you want to use nntool, you can skip this step
-otherwise. Once Anaconda is installed, you need to activate it and install
-Python modules for this tool with this command:
-
-~~~~~shell
-pip install -r tools/nntool/requirements.txt
-pip install -r requirements.txt
-~~~~~
-
-### Pull and compile the full tool suite
-
-Finally, we install the full tool suite of the sdk (including nntool and
-autotiler).
-
-~~~~~shell
-make sdk
-~~~~~
-
-Note that if you only need autotiler (and not nntool) you can instead use:
-
-~~~~~shell
-make all && make autotiler
-~~~~~
-
-## OpenOCD
-
-OpenOCD for GAP8 is now used instead of plpbridge. There are a few applications
-which require OpenOCD, as they are using OpenOCD semi-hosting to transfer files
-with the workstation.
-
-You have to install the system dependencies required by OpenOCD.
-You can find them in [OpenOCD README](http://openocd.org/doc-release/README).
-
-There are different cables setup by default for each board. In case you want to
-use a different cable, you can define this environment variable:
-
-~~~~~shell
-export GAPY_OPENOCD_CABLE=interface/ftdi/olimex-arm-usb-ocd-h.cfg
-~~~~~
-
-## Using the virtual platform
-
-If you only followed
-[Minimal installation](#minimal-install-freertos-only-no-neural-network-tools)
-process, begin by compiling gvsoc:
-
-~~~~~shell
-make gvsoc
-~~~~~
-
-You can also run this example on the GAP virtual platform with this command:
-
-~~~~~shell
-make clean all run platform=gvsoc PMSIS_OS=freertos/pulpos
-~~~~~
-
-### Using the virtual platform with profiler
-
-#### Using GAP Profiler
-You can open the doc : gap_sdk/doc/_build/html/index.html and find Tools -> Profiler
-
-In the doc, we will show you how to install and use the profiler step by step. 
-
-#### Using VCD traces with GTKWave
-You can also generate VCD traces to see more details about the execution:
-
-~~~~~shell
-make clean all run platform=gvsoc runner_args=--vcd
-~~~~~
-
-You should see a message from the platform telling how to open the profiler.
-
-## Using the flasher (Hyperflash)
-
-As soon as at least one file for a file-system is specified, the command
-`make all` will also build a flash image containing the file systems and upload
-it to the flash.
-
-For example, you can include files for the readfs file-system with these flags
-in your Makefile:
-
-~~~~~shell
-READFS_FILES += <file1> <file2> <file3> ......
-~~~~~
-
-In case you don't have any file but you still want to upload the flash image,
-for example for booting from flash, you can execute after you compiled your
-application:
-
-~~~~~shell
-make flash
-~~~~~
-
-In case you specified files, the command `make all` will not only build the
-application but also build the flash image and upload it to the flash.
-In case you just want to build your application, you can do:
-
-~~~~~shell
-make build
-~~~~~
-
-Then after that if you want to produce the flash image and upload it,
-you can do:
-
-~~~~~shell
-make image flash
-~~~~~
-
-## Boot from flash
-
-The board is by default configured to boot through JTAG. If you want to boot
-from flash, you need to first program a few efuses to tell the ROM to boot from
-flash. Be careful that this is a permanent operation, even though it will still
-be possible to boot from JTAG. This will just always boot from flash when you
-power-up the board or reset it.
-
-To program the efuses, please read the [README](./tools/gap_fuser/README.md) and 
-use the fuser tool to program your efuse. 
+And replace `PMSIS_OS=freertos` by `PMSIS_OS=pulpos` on your run command line.
 
 ## Console IO via uart
 
@@ -406,16 +304,16 @@ If you choose to boot your application from Flash, and/or you want to view the
 output of printf's in your code then you can first compile your application
 with the printf redirected on the UART with this command:
 
-~~~~~shell
+```bash
 make clean all platform=board PMSIS_OS=your_os io=uart
-~~~~~
+```
 
 You can also use a terminal program, like "cutecom":
 
-~~~~~shell
+```bash
 sudo apt-get install -y cutecom
 cutecom&
-~~~~~
+```
 
 Then please configure your terminal program to use /dev/ttyUSB1 with a 115200
 baud rate, 8 data bits and 1 stop bit.
@@ -424,7 +322,7 @@ baud rate, 8 data bits and 1 stop bit.
 
 If you want to upgrade/downgrade your SDK to a new/old version:
 
-~~~~~shell
+```bash
 cd gap_sdk
 git checkout master && git pull
 git checkout <release tag name>
@@ -432,10 +330,9 @@ git checkout <release tag name>
 make clean minimal_sdk
 # for full install
 make clean sdk
-~~~~~
+```
 
-You can find a list of [releases](https://github.com/GreenWaves-Technologies/gap_sdk/releases)
-on Github.
+You can find a list of releases in this repository.
 
 ## Getting help
 

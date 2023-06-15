@@ -17,6 +17,9 @@
 #ifndef __CNN_GENERATORS_FP16_H__
 #define __CNN_GENERATORS_FP16_H__
 
+#include "CNN_Copy_Generators.h"
+
+
 /** @addtogroup groupCNN
 @{ */
 
@@ -64,6 +67,99 @@ extern void LoadCNNLibrary_fp16();
 
  */
 
+Kernel_T *CNN_MM_ConvolutionPoolAct_fp16_Internal(
+        char         *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int InFeat,
+        int OutFeat,
+        int Width,
+        int Height,
+
+        KernelOper_T ConvOper,
+        int Fcx,
+        int Fcy,
+        int Dcx,
+        int Dcy,
+        int Scx,
+        int Scy,
+        int ConvPad,
+
+        KernelOper_T PoolOper,
+        int Fpx,
+        int Fpy,
+        int Dpx,
+        int Dpy,
+        int Spx,
+        int Spy,
+        int PoolPad,
+
+        KernelOper_T ActOper
+        );
+
+Kernel_T *CNN_HWC_DWConvolutionPoolAct_fp16_Internal(
+        char         *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int InFeat,
+        int OutFeat,
+        int Width,
+        int Height,
+
+        KernelOper_T ConvOper,
+        int Fcx,
+        int Fcy,
+        int Dcx,
+        int Dcy,
+        int Scx,
+        int Scy,
+        int ConvPad,
+
+        KernelOper_T PoolOper,
+        int Fpx,
+        int Fpy,
+        int Dpx,
+        int Dpy,
+        int Spx,
+        int Spy,
+        int PoolPad,
+
+        KernelOper_T ActOper
+        );
+
+Kernel_T *CNN_ConvolutionPoolAct_fp16_Internal(
+        char         *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int InFeat,
+        int OutFeat,
+        int Width,
+        int Height,
+
+        KernelOper_T ConvOper,
+        int Fcx,
+        int Fcy,
+        int Dcx,
+        int Dcy,
+        int Scx,
+        int Scy,
+        int ConvPad,
+
+        KernelOper_T PoolOper,
+        int Fpx,
+        int Fpy,
+        int Dpx,
+        int Dpy,
+        int Spx,
+        int Spy,
+        int PoolPad,
+
+        KernelOper_T ActOper
+        );
+
 extern int CNN_ConvolutionPoolAct_fp16(
 	char         *Name,
 
@@ -81,7 +177,7 @@ extern int CNN_ConvolutionPoolAct_fp16(
 	int Dcy,
 	int Scx,
 	int Scy,
-	int          ConvPad,
+	int ConvPad,
 
 	KernelOper_T PoolOper,
 	int Fpx,
@@ -90,7 +186,7 @@ extern int CNN_ConvolutionPoolAct_fp16(
 	int Dpy,
 	int Spx,
 	int Spy,
-	int          PoolPad,
+	int PoolPad,
 
        	KernelOper_T ActOper
 	);
@@ -197,6 +293,28 @@ extern int CNN_GroupedConvolutionPoolAct_fp16(
 
  */
 
+Kernel_T *CNN_PoolAct_fp16_Internal(
+        char *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int InFeat,
+        int OutFeat,
+        int Width,
+        int Height,
+
+        KernelOper_T PoolOper,
+        int Fpx,
+        int Fpy,
+        int Dpx,
+        int Dpy,
+        int Spx,
+        int Spy,
+        int PoolPad,
+
+        KernelOper_T ActOper
+        );
+
 extern int CNN_PoolAct_fp16(
 	char         *Name,
 
@@ -239,7 +357,7 @@ extern int CNN_PoolAct_fp16(
 
 */
 
-extern int CNN_GlobalPool_fp16(
+extern int CNN_GlobalPoolAct_fp16(
 	char *Name,
 
 	CNN_GenControl_T *Ctrl,
@@ -273,6 +391,18 @@ extern int CNN_GlobalPool_fp16(
 
 *********************************************************************************************************************************************************************/
 
+Kernel_T *CNN_Act_fp16_Internal(
+        char *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int Feat,
+        int Width,
+        int Height,
+
+        KernelOper_T ActOper
+        );
+
 extern int CNN_Act_fp16(
         char *Name,
 
@@ -305,6 +435,18 @@ extern int CNN_Act_fp16(
     \param    Signature:      Name(In, Filter, Bias, Out)
 
 */
+
+Kernel_T *CNN_LinearAct_fp16_Internal(
+        char *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int InDim,
+        int OutDim,
+
+        KernelOper_T LinearOper,
+        KernelOper_T ActOper
+        );
 
 extern int CNN_LinearAct_fp16(
         char *Name,
@@ -343,6 +485,16 @@ extern int CNN_SoftMax_fp16(
         KernelOper_T SoftMaxOper
         );
 
+extern int CNN_SoftMax2D_fp16(
+        char *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int Feat,
+        int Dim,
+        KernelOper_T SoftMaxOper
+        );
+
 /** \brief CNN_MatAddAct_fp16
 
     Generator for Matrix Addition layers
@@ -363,7 +515,7 @@ extern int CNN_SoftMax_fp16(
 
 */
 
-extern int CNN_MatAdd_fp16(
+extern int CNN_MatAddAct_fp16(
 	char *Name,
 
 	CNN_GenControl_T *Ctrl,
@@ -376,6 +528,44 @@ extern int CNN_MatAdd_fp16(
 	KernelOper_T AddMatOper,
 	KernelOper_T ActOper
 	);
+
+/** \brief CNN_MatAddPaddedAct_fp16
+
+    Generator for Matrix Addition layers
+
+    \param    Name:           Name of the generated user kernel followed by an optional Activation.
+
+    \param    Ctrl:           Overide generator default options (TileOrientation, Parallel Features), Def=(TILE_HOR, 1)
+
+    \param    InFeat:         Number of input features
+    \param    OutFeat:        Number of input features, should always be equal to InFeat
+    \param    Width:          Width of a given feature
+    \param    Height:         Height of a given feature
+    \param    PadTop:         Number of feature to skip in the IdxPaddedIn Input at the beginning
+    \param    PadBot:         Number of feature to skip in the IdxPaddedIn Input at the end
+    \param    IdxPaddedIn:    Which input must be skipped (0 or 1)
+
+    \param    AddMatOper:     Should always be KOP_MATADD
+    \param    ActOper:        Optional activation function: KOP_RELU, KOP_RELUN, KOP_HSWISH, KOP_HSIGMOID, KOP_LEAKYRELU
+
+    \param    Signature:      Name(In1, In2, Out)
+
+*/
+
+extern int CNN_MatAddPaddedAct_fp16(
+        char *Name,
+        CNN_GenControl_T *Ctrl,
+
+        int Feat,
+        int Width,
+        int Height,
+        int PadTop,
+        int PadBot,
+        int IdxPaddedIn,
+
+        KernelOper_T AddMatOper,
+        KernelOper_T ActOper
+        );
 
 /** \brief CNN_MatMulAct_fp16
 
@@ -405,7 +595,27 @@ extern int CNN_MatAdd_fp16(
 
     \param    Signature:      Name(In2, In1, Bias, Out)
 */
-        
+
+Kernel_T *CNN_MatMulAct_fp16_Internal(
+        char *Name,
+
+        CNN_GenControl_T *Ctrl,
+
+        int ColM1,
+        int LineM1,
+        int ColM2,
+        int LineM2,
+
+        int Width,
+        int Height,
+        int Scx,
+        int Scy,
+
+        KernelOper_T MatMulOper,
+        KernelOper_T ActOper,
+        int InvertInputs
+        );
+
 extern int CNN_MatMulAct_fp16(
         char *Name,
 
@@ -458,7 +668,7 @@ extern int CNN_MatMulAct_fp16(
 
 *********************************************************************************************************************************************************************/
 
-extern int CNN_MatMulSmallM1Act_fp16(
+Kernel_T *CNN_MatMulSmallM1Act_fp16_Internal(
         char *Name,
 
         CNN_GenControl_T *Ctrl,
@@ -477,59 +687,23 @@ extern int CNN_MatMulSmallM1Act_fp16(
         KernelOper_T ActOper
 );
 
-/** \brief CNN_MatTranspose_fp16
-
-        Generator for Matrix Transposition
-
-        Template:
-        \param  Name:           Name of the generated user kernel
-
-        \param  Ctrl:           Overide generator default options (TileOrientation, Parallel Features), Def=(TILE_HOR, 1)
-
-        \param  InFeat          Number of matrices
-        \param  Width           For 1x1 convolution, width of an input feature map
-        \param  Height          For 1x1 convolution, height of an input feature map
-
-	\param  Signature:	Name(In, Out)
-*/
-int CNN_MatTranspose_fp16(
+extern int CNN_MatMulSmallM1Act_fp16(
         char *Name,
 
         CNN_GenControl_T *Ctrl,
 
-        int InFeat,
+        int ColM1,
+        int LineM1,
+        int ColM2,
+        int LineM2,
+
         int Width,
-        int Height
-);
+        int Height,
+        int Scx,
+        int Scy,
 
-
-/** \brief CNN_3DTensorPermute_fp16
- 
-        Generator for 3D Tensor permutations:  CHW => {CWH, HWC, WHC, WCH, HCW}
-
-        Template:
-	\param	Name:           Name of the generated user kernel
-
-	\param	Ctrl:           Overide generator default options
-
-	\param	InFeat          Number of channels of the tensor
-	\param	Width           Tensor width
-	\param	Height          Tensor height
-
-	\param	MatPermOper     Permutation oper:  KOP_MATPERM_CHW2CWH, KOP_MATPERM_CHW2HWC, KOP_MATPERM_CHW2WHC, KOP_MATPERM_CHW2WCH, KOP_MATPERM_CHW2HCW
-
-	\param  Signature:	Name(In, Out)
-
-*/
-int CNN_3DTensorPermute_fp16(
-	char *Name,
-
-	CNN_GenControl_T *Ctrl,
-
-	int InFeat,
-	int Width,
-	int Height,
- 	KernelOper_T MatPermOper
+        KernelOper_T MatMulOper,
+        KernelOper_T ActOper
 );
 
 /** @} */

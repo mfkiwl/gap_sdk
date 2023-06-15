@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, GreenWaves Technologies, Inc.
+ * Copyright (c) 2021, GreenWaves Technologies, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -28,147 +28,159 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __PI_HAL_SOC_CTRL_PAD_H__
-#define __PI_HAL_SOC_CTRL_PAD_H__
+#pragma once
 
 #include "pmsis/targets/target.h"
 
 #define ARCHI_PAD_NB_PADFUNC_REG         ( 0x4 )
-#define ARCHI_PAD_NB_PAD_PER_PADFUNC     ( ARCHI_NB_PAD >> ARCHI_PAD_NB_PADFUNC_REG )
+#define ARCHI_PAD_NB_PAD_PER_PADFUNC     ( ARCHI_NB_PAD / ARCHI_PAD_NB_PADFUNC_REG )
+#define ARCHI_PADFUNC_REG_OFFSET(pad)    ( (pad) / ARCHI_PAD_NB_PAD_PER_PADFUNC )
+#define ARCHI_PADFUNC_POS_OFFSET(pad)    ( (pad) % ARCHI_PAD_NB_PAD_PER_PADFUNC )
+
 #define ARCHI_PAD_NB_PADCFG_REG          ( 0x10 )
+#define ARCHI_PAD_NB_PAD_PER_PADCFG      ( ARCHI_NB_PAD / ARCHI_PAD_NB_PADCFG_REG )
+#define ARCHI_PADCFG_REG_OFFSET(pad)     ( (pad) / ARCHI_PAD_NB_PAD_PER_PADCFG )
+#define ARCHI_PADCFG_POS_OFFSET(pad)     ( (pad) % ARCHI_PAD_NB_PAD_PER_PADCFG )
 
 #define ARCHI_PAD_NB_SLEEPPADCFG_REG     ( 0x4 )
 #define ARCHI_PAD_NB_PAD_PER_SLEEPPADCFG ( ARCHI_NB_PAD >> ARCHI_PAD_NB_SLEEPPADCFG_REG )
 
 #define APB_SOC_STATUS_EOC_SHIFT         ( 31 )
 
-/* Corestatus register. */
-static inline void soc_ctrl_corestatus_set(int32_t value)
+
+/** PADFUN Register. */
+static inline void soc_ctrl_padfun_set(uint32_t base, uint32_t reg_num,
+                                       uint32_t value)
 {
-    hal_write32(&(soc_ctrl->corestatus), (1 << APB_SOC_STATUS_EOC_SHIFT) | value);
-    //hal_write32(&(soc_ctrl->corestatus), value);
+    uint32_t reg_offset = (uint32_t) APB_SOC_PADFUN0_OFFSET + (reg_num << 2);
+    GAP_WRITE(base, reg_offset, value);
 }
 
-static inline uint32_t soc_ctrl_corestatus_get(void)
+static inline uint32_t soc_ctrl_padfun_get(uint32_t base, uint32_t reg_num)
 {
-    return hal_read32(&(soc_ctrl->corestatus));
-}
-
-
-/* Safe_padfun register. */
-static inline void soc_ctrl_safe_padfun_set(uint8_t reg_num, uint32_t value)
-{
-    hal_write32(&(soc_ctrl->safe_padfun[reg_num]), value);
-}
-
-static inline uint32_t soc_ctrl_safe_padfun_get(uint8_t reg_num)
-{
-    return hal_read32(&(soc_ctrl->safe_padfun[reg_num]));
+    uint32_t reg_offset = (uint32_t) APB_SOC_PADFUN0_OFFSET + (reg_num << 2);
+    return GAP_READ(base, reg_offset);
 }
 
 
-/* Safe_sleeppadcfg register. */
-static inline void soc_ctrl_safe_sleeppadcfg_set(uint8_t reg_num, uint32_t value)
+/** PADCFG Register. */
+static inline void soc_ctrl_padcfg_set(uint32_t base, uint32_t reg_num,
+                                       uint32_t value)
 {
-    hal_write32(&(soc_ctrl->safe_sleeppadcfg[reg_num]), value);
+    uint32_t reg_offset = (uint32_t) APB_SOC_PADCFG0_OFFSET + (reg_num << 2);
+    GAP_WRITE(base, reg_offset, value);
 }
 
-static inline uint32_t soc_ctrl_safe_sleeppadcfg_get(uint8_t reg_num)
+static inline uint32_t soc_ctrl_padcfg_get(uint32_t base, uint32_t reg_num)
 {
-    return hal_read32(&(soc_ctrl->safe_sleeppadcfg[reg_num]));
-}
-
-
-/* Safe_padsleep register. */
-static inline void soc_ctrl_safe_padsleep_set(uint32_t value)
-{
-    hal_write32(&(soc_ctrl->safe_padsleep), value);
-}
-
-static inline uint32_t soc_ctrl_safe_padsleep_get()
-{
-    return hal_read32(&(soc_ctrl->safe_padsleep));
+    uint32_t reg_offset = (uint32_t) APB_SOC_PADCFG0_OFFSET + (reg_num << 2);
+    return GAP_READ(base, reg_offset);
 }
 
 
-/* Safe_padcfg register. */
-static inline void soc_ctrl_safe_padcfg_set(uint8_t reg_num, uint32_t value)
+/*! Corestatus. */
+static inline void hal_soc_ctrl_corestatus_set(int32_t value)
 {
-    hal_write32(&(soc_ctrl->safe_padcfg[reg_num]), value);
-}
-
-static inline uint32_t soc_ctrl_safe_padcfg_get(uint8_t reg_num)
-{
-    return hal_read32(&(soc_ctrl->safe_padcfg[reg_num]));
+    uint32_t status = ((1 << APB_SOC_STATUS_EOC_SHIFT) | value);
+    apb_soc_corestatus_set((uint32_t) apb_soc_ctrl, status);
 }
 
 
-/*! Safe_padfun. */
-/* Pad function configuration. */
-static inline void hal_pad_function_set(uint8_t pad, uint8_t func)
+/*! Padfun. */
+/**
+ * Pad function configuration.
+ * 2b00 - Func0
+ * 2b01 - Func1 - GPIO
+ * 2b02 - Func2
+ * 2b03 - Func3
+ */
+static inline void hal_pad_pad_function_set(uint32_t pad, uint8_t func)
+{
+    uint32_t base = (uint32_t) apb_soc_ctrl;
+    uint32_t pad_reg = (uint32_t) ARCHI_PADFUNC_REG_OFFSET(pad);
+    uint32_t pad_pos = (uint32_t) ARCHI_PADFUNC_POS_OFFSET(pad);
+    uint32_t mask = 0x3, shift = (pad_pos << 1);
+    uint32_t val = soc_ctrl_padfun_get(base, pad_reg);
+    val &= ~(mask << shift);
+    val |= (func << shift);
+    soc_ctrl_padfun_set(base, pad_reg, val);
+}
+
+static inline void hal_pad_padfunc_set(uint32_t pad_reg, uint32_t value)
+{
+    uint32_t base = (uint32_t) apb_soc_ctrl;
+    soc_ctrl_padfun_set(base, pad_reg, value);
+}
+
+static inline uint32_t hal_pad_padfunc_get(uint32_t pad_reg)
+{
+    uint32_t base = (uint32_t) apb_soc_ctrl;
+    return soc_ctrl_padfun_get(base, pad_reg);
+}
+
+
+/*! Safe_padcfg. */
+/**
+ * 8 bits(2 first MSB not used) : NU | DS | PE
+ * 2b00 - Not Used
+ * xb00 - Drive strength
+ * xb00 - Pull enable
+ */
+/* Set pull activation of a pad. */
+static inline void hal_pad_pull_set(uint32_t pad, uint8_t pe)
+{
+    uint32_t base = (uint32_t) apb_soc_ctrl;
+    uint32_t pad_reg = (uint32_t) ARCHI_PADCFG_REG_OFFSET(pad);
+    uint32_t pad_pos = (uint32_t) ARCHI_PADCFG_POS_OFFSET(pad);
+    uint32_t mask = 0x1, shift = (pad_pos << 3);
+    uint32_t val = soc_ctrl_padcfg_get(base, pad_reg);
+    val &= ~(mask << shift);
+    val |= (pe << shift);
+    soc_ctrl_padcfg_set(base, pad_reg, val);
+}
+
+/* Set drive strength of a pad. */
+static inline void hal_pad_drive_strength_set(uint32_t pad, uint8_t ds)
 {
     /* Get reg number and its position in the register. */
-    uint32_t pad_reg = (pad >> 4), pad_pos = (pad & 0x0F);
-    uint32_t mask = 0x3, shift = (pad_pos << 1);
-    uint32_t val = soc_ctrl_safe_padfun_get(pad_reg);
-    val = ((val & ~(mask << shift)) | (func << shift));
-    soc_ctrl_safe_padfun_set(pad_reg, val);
+    uint32_t base = (uint32_t) apb_soc_ctrl;
+    uint32_t pad_reg = (uint32_t) ARCHI_PADCFG_REG_OFFSET(pad);
+    uint32_t pad_pos = (uint32_t) ARCHI_PADCFG_POS_OFFSET(pad);
+    uint32_t mask = 0x2, shift = (pad_pos << 3);
+    uint32_t val = soc_ctrl_padcfg_get(base, pad_reg);
+    val &= ~(mask << shift);
+    val |= ((ds << 1) << shift);
+    soc_ctrl_padcfg_set(base, pad_reg, val);
 }
 
-static inline void hal_pad_padfunc_set(uint8_t pad_reg, uint32_t value)
+/* Padcfg pull activation & drive strength configuration. */
+static inline void hal_pad_padcfg_config_set(uint32_t pad, uint8_t pe, uint8_t ds)
 {
-    soc_ctrl_safe_padfun_set(pad_reg, value);
+    uint32_t base = (uint32_t) apb_soc_ctrl;
+    uint32_t pad_reg = (uint32_t) ARCHI_PADCFG_REG_OFFSET(pad);
+    uint32_t pad_pos = (uint32_t) ARCHI_PADCFG_POS_OFFSET(pad);
+    uint32_t mask = 0x3, shift = (pad_pos << 3);
+    uint32_t val = soc_ctrl_padcfg_get(base, pad_reg);
+    val &= ~(mask << shift);
+    val |= (((ds << 1) | pe) << shift);
+    soc_ctrl_padcfg_set(base, pad_reg, val);
 }
 
-static inline uint32_t hal_pad_padfunc_get(uint8_t pad_reg)
+static inline uint32_t hal_pad_padcfg_config_get(uint32_t pad_reg)
 {
-    return soc_ctrl_safe_padfun_get(pad_reg);
+    uint32_t base = (uint32_t) apb_soc_ctrl;
+    return soc_ctrl_padcfg_get(base, pad_reg);
 }
 
 
 /*! Safe_sleeppadcfg. */
-/* Sleeppad direction configuration. */
-static inline void hal_pad_sleeppad_direction_set(uint8_t pad, uint8_t dir)
-{
-    /* Get reg number and its position in the register. */
-    uint32_t pad_reg = (pad >> 4), pad_pos = (pad & 0x0F);
-    uint32_t mask = 0x1, shift = (pad_pos << 1);
-    uint32_t val = soc_ctrl_safe_sleeppadcfg_get(pad_reg);
-    val = ((val & ~(mask << shift)) | (dir << shift));
-    soc_ctrl_safe_sleeppadcfg_set(pad_reg, val);
-}
-
-/* Sleeppad state configuration. */
-static inline void hal_pad_sleeppad_state_set(uint8_t pad, uint8_t state)
-{
-    /* Get reg number and its position in the register. */
-    uint32_t pad_reg = (pad >> 4), pad_pos = (pad & 0x0F);
-    uint32_t mask = 0x2, shift = (pad_pos << 1);
-    uint32_t val = soc_ctrl_safe_sleeppadcfg_get(pad_reg);
-    val = ((val & ~(mask << shift)) | ((state << 1) << shift));
-    soc_ctrl_safe_sleeppadcfg_set(pad_reg, val);
-}
-
-/* Sleeppad state & dir configuration. */
-static inline void hal_pad_sleeppad_configuration_set(uint8_t pad, uint8_t dir,
-                                                      uint8_t state)
-{
-    /* Get reg number and its position in the register. */
-    uint32_t pad_reg = (pad >> 4), pad_pos = (pad & 0x0F);
-    uint32_t mask = 0x3, shift = (pad_pos << 1);
-    uint32_t val = soc_ctrl_safe_sleeppadcfg_get(pad_reg);
-    val = ((val & ~(mask << shift)) | (((state << 1) | dir) << shift));
-    soc_ctrl_safe_sleeppadcfg_set(pad_reg, val);
-}
-
 static inline void hal_pad_sleeppadcfg_set(uint8_t pad_reg, uint32_t value)
 {
-    soc_ctrl_safe_sleeppadcfg_set(pad_reg, value);
 }
 
 static inline uint32_t hal_pad_sleeppadcfg_get(uint8_t pad_reg)
 {
-    return soc_ctrl_safe_sleeppadcfg_get(pad_reg);
+    return 0;
 }
 
 
@@ -176,43 +188,4 @@ static inline uint32_t hal_pad_sleeppadcfg_get(uint8_t pad_reg)
 /* Enable sleep mode for pads. */
 static inline void hal_pad_padsleep_enable(uint8_t enable)
 {
-    uint32_t val = SOC_CTRL_SAFE_PADSLEEP_EN(enable);
-    soc_ctrl_safe_padsleep_set(val);
 }
-
-
-/*! Safe_padcfg. */
-/* Set pull activation of a pad. */
-static inline void hal_pad_padcfg_pull_enable(uint8_t pad, uint8_t pe)
-{
-    /* Get reg number and its position in the register. */
-    uint32_t pad_reg = (pad >> 2), pad_pos = (pad & 0x03);
-    uint32_t mask = 0x1, shift = (pad_pos << 3);
-    uint32_t val = soc_ctrl_safe_padcfg_get(pad_reg);
-    val = ((val & ~(mask << shift)) | (pe << shift));
-    soc_ctrl_safe_padcfg_set(pad_reg, val);
-}
-
-/* Set drive strength of a pad. */
-static inline void hal_pad_padcfg_drive_strength_set(uint8_t pad, uint8_t ds)
-{
-    /* Get reg number and its position in the register. */
-    uint32_t pad_reg = (pad >> 2), pad_pos = (pad & 0x03);
-    uint32_t mask = 0x2, shift = (pad_pos << 3);
-    uint32_t val = soc_ctrl_safe_padcfg_get(pad_reg);
-    val = ((val & ~(mask << shift)) | ((ds << 1) << shift));
-    soc_ctrl_safe_padcfg_set(pad_reg, val);
-}
-
-/* Padcfg pull activation & drive strength configuration. */
-static inline void hal_pad_padcfg_configuration_set(uint8_t pad, uint8_t pe, uint8_t ds)
-{
-    /* Get reg number and its position in the register. */
-    uint32_t pad_reg = (pad >> 2), pad_pos = (pad & 0x03);
-    uint32_t mask = 0x3, shift = (pad_pos << 3);
-    uint32_t val = soc_ctrl_safe_padcfg_get(pad_reg);
-    val = ((val & ~(mask << shift)) | (((ds << 1) | pe) << shift));
-    soc_ctrl_safe_padcfg_set(pad_reg, val);
-}
-
-#endif  /* __PI_HAL_SOC_CTRL_PAD_H__ */
